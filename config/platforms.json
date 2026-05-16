@@ -1,0 +1,329 @@
+{
+  "platforms": {
+    "jetson": {
+      "adapter_id": "jetson",
+      "default_toolchain": "tensorrt",
+      "compile_flags": {
+        "workspace_size_mb": 512
+      },
+      "toolchains": {
+        "tensorrt": {
+          "display_name": "NVIDIA TensorRT",
+          "default_precision": "fp16"
+        }
+      },
+      "boards": {
+        "jetson_nano": {
+          "display_name": "NVIDIA Jetson Nano (EOL)",
+          "memory_mb": 4096,
+          "tdp_watts": 10,
+          "cost_usd": 99,
+          "available_toolchains": [
+            "tensorrt"
+          ],
+          "toolchain_overrides": {
+            "tensorrt": {
+              "baseline_latency_ms": 18
+            }
+          }
+        },
+        "agx_orin": {
+          "display_name": "NVIDIA Jetson AGX Orin 64GB",
+          "memory_mb": 65536,
+          "tdp_watts": 60,
+          "cost_usd": 1999,
+          "available_toolchains": [
+            "tensorrt"
+          ],
+          "toolchain_overrides": {
+            "tensorrt": {
+              "baseline_latency_ms": 2.5
+            }
+          }
+        },
+        "orin_nano": {
+          "display_name": "NVIDIA Jetson Orin Nano Super",
+          "memory_mb": 8192,
+          "tdp_watts": 25,
+          "cost_usd": 249,
+          "available_toolchains": [
+            "tensorrt"
+          ],
+          "toolchain_overrides": {
+            "tensorrt": {
+              "baseline_latency_ms": 5
+            }
+          }
+        }
+      }
+    },
+    "fpga": {
+      "adapter_id": "fpga",
+      "default_toolchain": "vitis_ai",
+      "compile_flags": {},
+      "toolchains": {
+        "vitis_ai": {
+          "display_name": "AMD Vitis AI",
+          "quantization": "int8",
+          "dpu_arch": "DPUCZDX8G",
+          "dpu_silicon_family": "Zynq UltraScale+ MPSoC",
+          "supported_operations": [
+            "Conv2d",
+            "ConvTranspose2d",
+            "DepthwiseConv2d",
+            "Conv2D",
+            "MaxPool2d",
+            "MaxPool",
+            "AvgPool2d",
+            "AvgPool",
+            "ReLU",
+            "ReLU6",
+            "LeakyReLU",
+            "Hardsigmoid",
+            "Hardswish",
+            "Add",
+            "Mul",
+            "Linear",
+            "Dense",
+            "Softmax",
+            "Cat",
+            "BatchNorm2d",
+            "BatchNorm",
+            "Correlation",
+            "Argmax",
+            "Reorg"
+          ]
+        }
+      },
+      "boards": {
+        "zcu104": {
+          "display_name": "AMD Zynq UltraScale+ MPSoC ZCU104 Evaluation Kit",
+          "device": "XCZU7EV-2FFVC1156",
+          "memory_mb": 2048,
+          "block_ram_mb": 38,
+          "tdp_watts": 10,
+          "cost_usd": 1678,
+          "available_toolchains": [
+            "vitis_ai"
+          ],
+          "toolchain_overrides": {
+            "vitis_ai": {
+              "baseline_latency_ms": 8,
+              "dpu_arch": "DPUCZDX8G"
+            }
+          }
+        }
+      }
+    },
+    "mcu": {
+      "adapter_id": "mcu",
+      "default_toolchain": "stm32cubeai",
+      "toolchains": {
+        "stm32cubeai": {
+          "display_name": "STM32Cube.AI (Neural-ART NPU)",
+          "quantization": "int8",
+          "supported_operations": [
+            "Conv2d",
+            "Conv1d",
+            "Conv3d",
+            "ConvTranspose2d",
+            "ConvTranspose1d",
+            "DepthwiseConv2d",
+            "Linear",
+            "Dense",
+            "BatchNorm2d",
+            "BatchNorm1d",
+            "BatchNorm3d",
+            "ReLU",
+            "ReLU6",
+            "LeakyReLU",
+            "PReLU",
+            "ELU",
+            "SELU",
+            "GELU",
+            "SiLU",
+            "Hardswish",
+            "Hardsigmoid",
+            "Sigmoid",
+            "Tanh",
+            "Softmax",
+            "LogSoftmax",
+            "MaxPool2d",
+            "MaxPool1d",
+            "AvgPool2d",
+            "AvgPool1d",
+            "AdaptiveAvgPool2d",
+            "AdaptiveMaxPool2d",
+            "Cat",
+            "Flatten",
+            "Unflatten",
+            "UpsamplingNearest2d",
+            "ZeroPad2d",
+            "ReflectionPad2d",
+            "ReplicationPad2d",
+            "ConstantPad2d",
+            "Identity"
+          ]
+        }
+      },
+      "boards": {
+        "stm32n6570_dk": {
+          "display_name": "STM32N6570-DK",
+          "memory_mb": 4300,
+          "tdp_watts": 1.5,
+          "cost_usd": 120,
+          "available_toolchains": [
+            "stm32cubeai"
+          ],
+          "toolchain_overrides": {
+            "stm32cubeai": {
+              "baseline_latency_ms": 50,
+              "target_mcu": "STM32N6570"
+            }
+          }
+        }
+      }
+    },
+    "arm": {
+      "adapter_id": "arm",
+      "default_toolchain": "ncnn",
+      "compile_flags": {
+        "num_threads": 4
+      },
+      "toolchains": {
+        "ncnn": {
+          "display_name": "ncnn",
+          "default_precision": "fp32",
+          "supported_operations": [
+            "AbsVal",
+            "ArgMax",
+            "BNLL",
+            "BatchNorm",
+            "Bias",
+            "BinaryOp",
+            "CELU",
+            "Cast",
+            "Clip",
+            "Concat",
+            "Convolution",
+            "Convolution1D",
+            "Convolution3D",
+            "ConvolutionDepthWise",
+            "ConvolutionDepthWise1D",
+            "ConvolutionDepthWise3D",
+            "CopyTo",
+            "Crop",
+            "CumulativeSum",
+            "Deconvolution",
+            "Deconvolution1D",
+            "Deconvolution3D",
+            "DeconvolutionDepthWise",
+            "DeconvolutionDepthWise1D",
+            "DeconvolutionDepthWise3D",
+            "DeepCopy",
+            "DeformableConv2D",
+            "Dequantize",
+            "DetectionOutput",
+            "Diag",
+            "Dropout",
+            "ELU",
+            "Einsum",
+            "Eltwise",
+            "Embed",
+            "Erf",
+            "Exp",
+            "ExpandDims",
+            "Flatten",
+            "Flip",
+            "Fold",
+            "GELU",
+            "GLU",
+            "GRU",
+            "Gemm",
+            "GridSample",
+            "GroupNorm",
+            "HardSigmoid",
+            "HardSwish",
+            "InnerProduct",
+            "Input",
+            "InstanceNorm",
+            "Interp",
+            "InverseSpectrogram",
+            "LRN",
+            "LSTM",
+            "LayerNorm",
+            "Log",
+            "MVN",
+            "MatMul",
+            "MemoryData",
+            "Mish",
+            "MultiHeadAttention",
+            "Noop",
+            "Normalize",
+            "PReLU",
+            "PSROIPooling",
+            "Packing",
+            "Padding",
+            "Permute",
+            "PixelShuffle",
+            "Pooling",
+            "Pooling1D",
+            "Pooling3D",
+            "Power",
+            "PriorBox",
+            "Proposal",
+            "Quantize",
+            "RMSNorm",
+            "RNN",
+            "ROIAlign",
+            "ROIPooling",
+            "ReLU",
+            "Reduction",
+            "Reorg",
+            "Requantize",
+            "Reshape",
+            "RotaryEmbed",
+            "SDPA",
+            "SELU",
+            "SPP",
+            "Scale",
+            "Shrink",
+            "ShuffleChannel",
+            "Sigmoid",
+            "Slice",
+            "Softmax",
+            "Softplus",
+            "Spectrogram",
+            "Split",
+            "Squeeze",
+            "StatisticsPooling",
+            "Swish",
+            "TanH",
+            "Threshold",
+            "Tile",
+            "UnaryOp",
+            "Unfold",
+            "YoloDetectionOutput",
+            "Yolov3DetectionOutput"
+          ]
+        }
+      },
+      "boards": {
+        "raspberry_pi_4": {
+          "display_name": "Raspberry Pi 4 Model B (4 GB)",
+          "memory_mb": 4096,
+          "tdp_watts": 6,
+          "cost_usd": 60,
+          "available_toolchains": [
+            "ncnn"
+          ],
+          "toolchain_overrides": {
+            "ncnn": {
+              "baseline_latency_ms": 12
+            }
+          }
+        }
+      }
+    }
+  }
+}

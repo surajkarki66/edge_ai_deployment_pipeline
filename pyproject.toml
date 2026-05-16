@@ -1,0 +1,21 @@
+[project]
+name = "edge-ai-deployment-pipeline"
+version = "0.1.0"
+description = "Edge AI deployment pipeline for computer-vision models — profile, compat-check, constrain, deploy"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = []
+
+[project.optional-dependencies]
+pytorch = ["torch>=2.0", "fvcore>=0.1.5"]
+tensorflow = ["tensorflow>=2.14"]
+dev = [
+    "mypy>=1.8",
+]
+
+[tool.mypy]
+python_version = "3.11"
+files = ["core", "stages", "adapters", "config", "operators"]
+strict = true
+ignore_missing_imports = true
+incremental = false
