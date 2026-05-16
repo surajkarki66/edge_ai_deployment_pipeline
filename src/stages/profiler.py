@@ -6,7 +6,6 @@ import logging
 import time
 from typing import Any
 
-from core.cv_scope import validate_cv_model
 from core.types import FrameworkTag, LoadedModel, ModelProfile
 
 logger = logging.getLogger(__name__)
@@ -22,7 +21,6 @@ class ProfilerStage:
             profile = self._profile_pytorch(loaded)
         else:
             profile = self._profile_tensorflow(loaded)
-        validate_cv_model(profile)
         return profile
 
     def _profile_pytorch(self, loaded: LoadedModel) -> ModelProfile:

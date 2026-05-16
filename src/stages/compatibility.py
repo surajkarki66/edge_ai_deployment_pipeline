@@ -7,7 +7,6 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 from config.catalogue import DEFAULT_CATALOGUE_PATH, PlatformCatalogue
-from core.cv_scope import validate_cv_model
 from core.types import (
     CompatibilityReport,
     CompatibilityStatus,
@@ -22,7 +21,7 @@ logger = logging.getLogger(__name__)
 PROBLEM_PATTERNS: dict[str, list[str]] = {
     "jetson": ["Einsum"],
     "fpga": ["MultiheadAttention", "Attention", "Transpose", "Einsum"],
-    "mcu": ["MultiheadAttention", "LSTM", "GRU", "LayerNorm", "GroupNorm", "InstanceNorm2d"],
+    "mcu": ["LayerNorm", "GroupNorm", "InstanceNorm2d"],
     "arm": [],
 }
 
@@ -34,7 +33,6 @@ class CompatibilityStage:
         self._config_path = Path(platform_config_path or DEFAULT_CATALOGUE_PATH)
 
     def run(self, profile: ModelProfile) -> CompatibilityReport:
-        validate_cv_model(profile)
         catalogue = PlatformCatalogue.load(self._config_path)
         board_ids = catalogue.board_ids()
 
@@ -111,11 +109,10 @@ class CompatibilityStage:
         if not supported_ops:
             return CompatibilityStatus.FULLY_COMPATIBLE, [], None
 
-        toolchain = str(spec.get("toolchain", ""))
         unsupported = [
             layer
             for layer in profile.layer_type_inventory
-            if not self._layer_supported(layer, supported_ops, toolchain)
+            if not self._layer_supported(layer, supported_ops)
         ]
 
         if not unsupported:
@@ -128,16 +125,8 @@ class CompatibilityStage:
         penalty = round(ratio * profile.cpu_latency_ms * 0.3, 2)
         return CompatibilityStatus.PARTIALLY_COMPATIBLE, unsupported, penalty
 
-    def _layer_supported(self, layer: str, supported: set[str], toolchain: str) -> bool:
-        if layer in supported or self._fuzzy_match(layer, supported):
-            return True
-        if toolchain == "ncnn":
-            from operators.ncnn_mapping import PYTORCH_TO_NCNN
-
-            mapped = PYTORCH_TO_NCNN.get(layer)
-            if mapped and mapped in supported:
-                return True
-        return False
+    def _layer_supported(self, layer: str, supported: set[str]) -> bool:
+        return layer in supported or self._fuzzy_match(layer, supported)
 
     def _fuzzy_match(self, layer: str, supported: set[str]) -> bool:
         layer_lower = layer.lower()

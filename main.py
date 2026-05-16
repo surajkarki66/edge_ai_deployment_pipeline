@@ -7,6 +7,10 @@ import logging
 import sys
 from pathlib import Path
 
+_SRC = Path(__file__).resolve().parent / "src"
+if str(_SRC) not in sys.path:
+    sys.path.insert(0, str(_SRC))
+
 from core.pipeline import Pipeline
 from core.types import UserRequirements
 
@@ -31,7 +35,7 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--platform-config",
         type=Path,
         default=None,
-        help="Path to platforms.json (default: config/platforms.json)",
+        help="Path to platforms.json (default: src/config/platforms.json)",
     )
     parser.add_argument("--max-latency-ms", type=float, default=None, help="Max inference latency (ms)")
     parser.add_argument("--max-power-w", type=float, default=None, help="Max board power (W)")

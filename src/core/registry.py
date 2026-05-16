@@ -1,4 +1,4 @@
-"""Decorator-based registries for platforms, adapters, and operators."""
+"""Decorator-based registries for platform adapters."""
 
 from __future__ import annotations
 
@@ -56,4 +56,3 @@ class PlatformAdapterRegistry(Registry):
 
 
 platform_registry = PlatformAdapterRegistry("platform_adapter")
-operator_registry = Registry("operator")

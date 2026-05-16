@@ -15,7 +15,8 @@ dev = [
 
 [tool.mypy]
 python_version = "3.11"
-files = ["core", "stages", "adapters", "config", "operators"]
+mypy_path = "src"
+files = ["src/core", "src/stages", "src/adapters", "src/config", "src/operators"]
 strict = true
 ignore_missing_imports = true
 incremental = false
