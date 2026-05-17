@@ -1,20 +1,25 @@
-"""Stage 1b — automatic profiling for computer-vision models."""
-
 from __future__ import annotations
 
 import logging
 import time
+
 from typing import Any
 
 from core.types import FrameworkTag, LoadedModel, ModelProfile
 
 logger = logging.getLogger(__name__)
 
-BENCHMARK_ITERATIONS = 50
+BENCHMARK_ITERATIONS = 10
 
 
 class ProfilerStage:
     """Extract FLOPs, layer inventory, and CPU latency."""
+
+    def __init__(self, input_shape: tuple[int, int, int]) -> None:
+        channels, height, width = input_shape
+        if channels < 1 or height < 1 or width < 1:
+            raise ValueError(f"input_shape dimensions must be positive, got {input_shape}")
+        self._input_shape = input_shape
 
     def run(self, loaded: LoadedModel) -> ModelProfile:
         if loaded.framework == FrameworkTag.PYTORCH:
@@ -25,11 +30,10 @@ class ProfilerStage:
 
     def _profile_pytorch(self, loaded: LoadedModel) -> ModelProfile:
         import torch
-        import torch.nn as nn
 
-        model = self._resolve_pytorch_module(loaded.graph_handle)
+        model = self._resolve_pytorch_module(loaded.model)
         layer_inventory = self._pytorch_layer_inventory(model)
-        input_resolution = self._infer_pytorch_input_shape(model)
+        input_resolution = self._input_shape
         dummy = torch.randn(1, *input_resolution)
 
         flops, macs = self._estimate_pytorch_flops(model, dummy)
@@ -54,9 +58,9 @@ class ProfilerStage:
 
         if isinstance(handle, nn.Module):
             return handle.eval()
-        if isinstance(handle, dict) and "state_dict" in handle:
+        if isinstance(handle, dict):
             raise ValueError(
-                "state_dict checkpoint requires model class; provide TorchScript or full module"
+                "Checkpoint files are not supported; provide a full model or TorchScript export"
             )
         if hasattr(handle, "forward"):
             return handle.eval()
@@ -72,13 +76,6 @@ class ProfilerStage:
             if not list(module.children()):
                 inventory[name] = inventory.get(name, 0) + 1
         return inventory
-
-    def _infer_pytorch_input_shape(self, model: Any) -> tuple[int, ...]:
-        """Default image tensor layout: (channels, height, width)."""
-        for module in model.modules():
-            if hasattr(module, "in_channels") and module.in_channels:
-                return (int(module.in_channels), 224, 224)
-        return (3, 224, 224)  # RGB 224×224
 
     def _estimate_pytorch_flops(self, model: Any, dummy: Any) -> tuple[int, int]:
         try:
@@ -134,9 +131,9 @@ class ProfilerStage:
         return round(timings[len(timings) // 2], 4)
 
     def _profile_tensorflow(self, loaded: LoadedModel) -> ModelProfile:
-        model = loaded.graph_handle
+        model = loaded.model
         layer_inventory = self._tf_layer_inventory(model)
-        input_resolution = (3, 224, 224)
+        input_resolution = self._input_shape
         flops = macs = sum(layer_inventory.values()) * 1_000_000
         param_count = int(getattr(model, "count_params", lambda: 0)())
         model_size_mb = param_count * 4 / (1024**2) if param_count else 1.0
@@ -160,7 +157,7 @@ class ProfilerStage:
                 name = type(layer).__name__
                 inventory[name] = inventory.get(name, 0) + 1
         else:
-            inventory["SavedModel"] = 1
+            inventory["KerasModel"] = 1
         return inventory
 
     def _benchmark_tensorflow(self, model: Any, shape: tuple[int, ...]) -> float:
