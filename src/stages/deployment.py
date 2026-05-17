@@ -46,10 +46,10 @@ class DeploymentStage:
             type(adapter).__name__,
         )
 
-        if not adapter.validate(loaded.graph_handle, config):
+        if not adapter.validate(loaded.model, config):
             raise ValueError(f"Adapter validation failed for board '{board_id}'")
 
-        converted = adapter.convert(loaded.graph_handle, config)
+        converted = adapter.convert(loaded.model, config)
         artifact = adapter.build_artifact(converted, config)
         artifact.metadata["board_id"] = board_id
         artifact.metadata["platform_family"] = selected.platform_family

@@ -13,7 +13,6 @@ PlatformConfig = dict[str, Any]
 class FrameworkTag(str, Enum):
     PYTORCH = "pytorch"
     KERAS = "keras"
-    TENSORFLOW = "tensorflow"
 
 
 class CompatibilityStatus(str, Enum):
@@ -26,7 +25,7 @@ class CompatibilityStatus(str, Enum):
 class LoadedModel:
     framework: FrameworkTag
     source_path: str
-    graph_handle: Any
+    model: Any
     original_format: str
 
     def to_dict(self) -> dict[str, Any]:
@@ -34,7 +33,7 @@ class LoadedModel:
             "framework": self.framework.value,
             "source_path": self.source_path,
             "original_format": self.original_format,
-            "graph_handle": "<opaque>",
+            "model": "<opaque>",
         }
 
 

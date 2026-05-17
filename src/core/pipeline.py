@@ -1,5 +1,3 @@
-"""Pipeline orchestrator — runs stages sequentially, resumable from any stage."""
-
 from __future__ import annotations
 
 import logging
@@ -38,22 +36,24 @@ class PipelineStage(str, Enum):
 
 
 class Pipeline:
-    """Four-stage edge deployment pipeline for computer-vision models (optional resume)."""
+    """Four-stage edge deployment pipeline for computer-vision models."""
 
     def __init__(
         self,
         model_path: str | Path,
+        input_shape: tuple[int, int, int],
         requirements: UserRequirements,
         output_dir: str | Path | None = None,
         platform_config_path: str | Path | None = None,
     ) -> None:
         self.model_path = Path(model_path)
+        self.input_shape = input_shape
         self.requirements = requirements
         self.output_dir = Path(output_dir or "artifacts")
         self.platform_config_path = platform_config_path
 
         self._intake = IntakeStage()
-        self._profiler = ProfilerStage()
+        self._profiler = ProfilerStage(input_shape)
         self._compatibility = CompatibilityStage(platform_config_path)
         self._constraint = ConstraintCheckStage(platform_config_path)
         self._deployment = DeploymentStage(self.output_dir)
@@ -108,7 +108,7 @@ class Pipeline:
             return
         if result.loaded_model is None:
             raise ValueError("Profiler requires LoadedModel; run intake first or pass loaded_model")
-        logger.info("Stage 1b: Model profiling")
+        logger.info("Stage 1b: Model profiling (input_shape=%s)", self.input_shape)
         result.profile = self._profiler.run(result.loaded_model)
         logger.info("Model profile: %s", result.profile.to_dict())
 
