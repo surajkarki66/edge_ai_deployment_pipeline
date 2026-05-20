@@ -11,11 +11,12 @@ from core.types import (
     LoadedModel,
     ModelProfile,
     PipelineResult,
+    ScoreBreakdown,
     SelectedPlatform,
     UserRequirements,
 )
 import adapters.arm  # noqa: F401 — register platform adapters
-import adapters.fpga.adapter  # noqa: F401
+import adapters.fpga  # noqa: F401
 import adapters.jetson  # noqa: F401
 import adapters.mcu  # noqa: F401
 from stages.compatibility import CompatibilityStage
@@ -77,13 +78,31 @@ class Pipeline:
             artifact=artifact,
         )
 
+        # Adapter test: intake + deployment only (re-enable profiler/compat/constraint later).
         stages = [
             (PipelineStage.INTAKE, self._run_intake),
-            (PipelineStage.PROFILER, self._run_profiler),
-            (PipelineStage.COMPATIBILITY, self._run_compatibility),
-            (PipelineStage.CONSTRAINT, self._run_constraint),
+            # (PipelineStage.PROFILER, self._run_profiler),
+            # (PipelineStage.COMPATIBILITY, self._run_compatibility),
+            # (PipelineStage.CONSTRAINT, self._run_constraint),
             (PipelineStage.DEPLOYMENT, self._run_deployment),
         ]
+
+        if result.selected_platform is None:
+            board_id = "raspberry_pi_4"
+            result.selected_platform = SelectedPlatform(
+                platform_id=board_id,
+                platform_family="arm",
+                toolchain=self.requirements.toolchain or "ncnn",
+                score_breakdown=ScoreBreakdown(
+                    platform_id=board_id,
+                    total_score=1.0,
+                    latency_score=None,
+                    power_score=None,
+                    cost_score=None,
+                    fallback_penalty_applied=0.0,
+                ),
+                reasoning="adapter test stub (constraint stage disabled)",
+            )
 
         start_idx = 0
         if start_from is not None:
@@ -147,5 +166,6 @@ class Pipeline:
             result.loaded_model,
             result.selected_platform,
             self.platform_config_path,
+            input_shape=self.input_shape,
         )
         logger.info("Deployment artifact: %s", result.artifact.to_dict())
