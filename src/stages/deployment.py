@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
-from config.catalogue import DEFAULT_CATALOGUE_PATH, PlatformCatalogue
+from config.catalogue import PlatformCatalogue
 from core.registry import platform_registry
 from core.types import (
     DeploymentArtifact,
@@ -29,10 +29,16 @@ class DeploymentStage:
         loaded: LoadedModel,
         selected: SelectedPlatform,
         platform_config_path: str | Path | None = None,
+        *,
+        input_shape: tuple[int, int, int] | None = None,
     ) -> DeploymentArtifact:
         board_id = selected.platform_id
         config = self._load_board_config(
-            board_id, platform_config_path, toolchain=selected.toolchain
+            board_id,
+            platform_config_path,
+            toolchain=selected.toolchain,
+            loaded=loaded,
+            input_shape=input_shape,
         )
         adapter_id = str(config.get("adapter_id", selected.platform_family))
 
@@ -63,6 +69,8 @@ class DeploymentStage:
         config_path: str | Path | None,
         *,
         toolchain: str | None = None,
+        loaded: LoadedModel | None = None,
+        input_shape: tuple[int, int, int] | None = None,
     ) -> PlatformConfig:
         catalogue = PlatformCatalogue.load(config_path)
         resolved_tc = toolchain or catalogue.list_toolchains(board_id)[0]
@@ -70,4 +78,8 @@ class DeploymentStage:
         spec["output_dir"] = str(self.output_dir)
         spec["platform_id"] = board_id
         spec["board_id"] = board_id
+        if input_shape is not None:
+            spec["input_shape"] = input_shape
+        if loaded is not None:
+            spec["framework"] = loaded.framework.value
         return spec

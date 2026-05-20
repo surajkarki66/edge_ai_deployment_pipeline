@@ -4,11 +4,18 @@ version = "0.1.0"
 description = "Edge AI deployment pipeline for computer-vision models — profile, compat-check, constrain, deploy"
 readme = "README.md"
 requires-python = ">=3.11"
-dependencies = []
+dependencies = [
+    "torch>=2.0",
+    "fvcore>=0.1.5",
+    "tensorflow>=2.14",
+    "ncnn>=1.0.20260114",
+    "pnnx>=20260409",
+]
 
 [project.optional-dependencies]
 pytorch = ["torch>=2.0", "fvcore>=0.1.5"]
 tensorflow = ["tensorflow>=2.14"]
+arm = ["ncnn>=1.0.20260114", "pnnx>=20260409"]
 dev = [
     "mypy>=1.8",
 ]

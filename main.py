@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import argparse
-import logging
 import sys
 
 from pathlib import Path
@@ -10,6 +9,7 @@ _SRC = Path(__file__).resolve().parent / "src"
 if str(_SRC) not in sys.path:
     sys.path.insert(0, str(_SRC))
 
+from core.logging_config import setup_logging
 from core.pipeline import Pipeline
 from core.types import UserRequirements
 
@@ -77,10 +77,7 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 def main(argv: list[str] | None = None) -> int:
     args = _parse_args(argv)
 
-    logging.basicConfig(
-        level=logging.DEBUG if args.verbose else logging.INFO,
-        format="%(levelname)s %(name)s: %(message)s",
-    )
+    setup_logging(verbose=args.verbose)
 
     if not args.model.is_file():
         print(f"Model file not found: {args.model}", file=sys.stderr)

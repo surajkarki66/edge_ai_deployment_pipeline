@@ -1,4 +1,4 @@
-"""Abstract base for platform-specific CV model deployment adapters."""
+"""Abstract base for platform-specific model deployment adapters."""
 
 from __future__ import annotations
 
