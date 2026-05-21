@@ -66,7 +66,10 @@
           "display_name": "AMD Vitis AI",
           "quantization": "int8",
           "dpu_arch": "DPUCZDX8G",
+          "dpu_target": "DPUCZDX8G_ISA1_B4096",
           "dpu_silicon_family": "Zynq UltraScale+ MPSoC",
+          "vitis_ai_image": "xilinx/vitis-ai-pytorch-cpu:latest",
+          "calib_batch_size": 16,
           "supported_operations": [
             "Conv2d",
             "ConvTranspose2d",
@@ -109,7 +112,9 @@
           "toolchain_overrides": {
             "vitis_ai": {
               "baseline_latency_ms": 8,
-              "dpu_arch": "DPUCZDX8G"
+              "dpu_arch": "DPUCZDX8G",
+              "dpu_target": "DPUCZDX8G_ISA1_B4096",
+              "calibration_data": "/home/hsbi/Documents/Office_Works/edge_ai_deployment_pipeline/data/calibration/"
             }
           }
         }

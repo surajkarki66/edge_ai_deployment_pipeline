@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+
 from pathlib import Path
 
 from config.catalogue import PlatformCatalogue
@@ -53,7 +54,14 @@ class DeploymentStage:
         )
 
         if not adapter.validate(loaded.model, config):
-            raise ValueError(f"Adapter validation failed for board '{board_id}'")
+            fmt = getattr(loaded, "original_format", "")
+            hint = ""
+            if fmt == "torchscript" and adapter_id == "fpga":
+                hint = (
+                    " Vitis-AI requires an eager PyTorch model (torch.save(nn.Module)), "
+                    "not TorchScript — see toolchain error if raised during convert."
+                )
+            raise ValueError(f"Adapter validation failed for board '{board_id}'.{hint}")
 
         converted = adapter.convert(loaded.model, config)
         artifact = adapter.build_artifact(converted, config)
@@ -82,4 +90,6 @@ class DeploymentStage:
             spec["input_shape"] = input_shape
         if loaded is not None:
             spec["framework"] = loaded.framework.value
+            spec["source_path"] = loaded.source_path
+            spec["original_format"] = loaded.original_format
         return spec

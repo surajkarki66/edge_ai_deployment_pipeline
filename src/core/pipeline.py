@@ -88,11 +88,11 @@ class Pipeline:
         ]
 
         if result.selected_platform is None:
-            board_id = "jetson_nano"
+            board_id = "zcu104"
             result.selected_platform = SelectedPlatform(
                 platform_id=board_id,
-                platform_family="jetson",
-                toolchain=self.requirements.toolchain or "tensorrt",
+                platform_family="fpga",
+                toolchain=self.requirements.toolchain or "vitis_ai",
                 score_breakdown=ScoreBreakdown(
                     platform_id=board_id,
                     total_score=1.0,
