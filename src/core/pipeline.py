@@ -88,11 +88,11 @@ class Pipeline:
         ]
 
         if result.selected_platform is None:
-            board_id = "stm32n6570_dk"
+            board_id = "jetson_nano"
             result.selected_platform = SelectedPlatform(
                 platform_id=board_id,
-                platform_family="mcu",
-                toolchain=self.requirements.toolchain or "stm32n6",
+                platform_family="jetson",
+                toolchain=self.requirements.toolchain or "tensorrt",
                 score_breakdown=ScoreBreakdown(
                     platform_id=board_id,
                     total_score=1.0,

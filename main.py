@@ -34,7 +34,7 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "model",
         type=Path,
-        help="Path to trained model (.pt, .pth, .keras, .h5, …)",
+        help="Path to trained vision model (.pt, .pth, .keras, .h5)",
     )
     parser.add_argument(
         "--input-shape",

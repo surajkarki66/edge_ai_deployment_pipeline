@@ -1,13 +1,24 @@
-"""ONNX → TensorRT engine builder.
+# ONNX → TensorRT engine builder (adapted from Ultralytics).
+# Copyright (C) Ultralytics Inc.
+#
+# This program is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, either version 3 of the License, or (at your option) any
+# later version.
+#
+# This program is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A
+# PARTICULAR PURPOSE. See the GNU Affero General Public License for more details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <https://www.gnu.org/licenses/>.
 
-Adapted from Ultralytics ``onnx2engine``.
-See: https://github.com/ultralytics/ultralytics
-"""
 
 from __future__ import annotations
 
 import json
 import logging
+
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
@@ -35,9 +46,9 @@ def onnx2engine(
         half (bool, optional): Enable FP16 precision.
         int8 (bool, optional): Enable INT8 precision.
         dynamic (bool, optional): Enable dynamic input shapes.
-        shape (tuple[int, int, int, int], optional): Input shape (batch, channels, height, width).
+        shape (tuple[int, int, int, int], optional): 4D image input shape (matches ONNX layout).
         dla (int | None): DLA core to use (Jetson devices only).
-        dataset (ultralytics.data.build.InfiniteDataLoader, optional): Dataset for INT8 calibration.
+        dataset (optional): Iterable yielding CUDA float32 input batches for INT8 calibration.
         metadata (dict | None): Metadata to include in the engine file.
         verbose (bool, optional): Enable verbose logging.
         prefix (str, optional): Prefix for log messages.
@@ -100,10 +111,22 @@ def onnx2engine(
     for out in outputs:
         logger.info(f'{prefix} output "{out.name}" with shape{out.shape} {out.dtype}')
 
-    if dynamic:
+    def _dim_is_dynamic(d: int) -> bool:
+        return d == -1
+
+    has_dynamic_input = any(
+        _dim_is_dynamic(inp.shape[i]) for inp in inputs for i in range(len(inp.shape))
+    )
+    if dynamic or has_dynamic_input:
         profile = builder.create_optimization_profile()
-        min_shape = (1, shape[1], 32, 32)  # minimum input shape
-        max_shape = (*shape[:2], *(int(max(2, workspace or 2) * d) for d in shape[2:]))  # max input shape
+        n, d1, d2, d3 = shape
+        # NHWC when channel dim is last and small
+        if d3 <= 4 and d1 > d3:
+            min_shape = (n, 32, 32, d3)
+            max_shape = (n, d2 * 2, d2 * 2, d3)
+        else:
+            min_shape = (n, d1, 32, 32)
+            max_shape = (n, d1, d2 * 2, d3 * 2)
         for inp in inputs:
             profile.set_shape(inp.name, min=min_shape, opt=shape, max=max_shape)
         config.add_optimization_profile(profile)
@@ -112,6 +135,10 @@ def onnx2engine(
 
     logger.info(f"{prefix} building {'INT8' if int8 else 'FP' + ('16' if half else '32')} engine as {output_file}")
     if int8:
+        if dataset is None:
+            raise ValueError(
+                "INT8 TensorRT export requires calibration_data (image directory or .txt list)"
+            )
         config.set_flag(trt.BuilderFlag.INT8)
         config.profiling_verbosity = trt.ProfilingVerbosity.DETAILED
 
@@ -138,19 +165,19 @@ def onnx2engine(
 
             def __init__(
                 self,
-                dataset,  # ultralytics.data.build.InfiniteDataLoader
+                dataset,
                 cache: str = "",
             ) -> None:
                 """Initialize the INT8 calibrator with dataset and cache path."""
                 trt.IInt8Calibrator.__init__(self)
                 self.dataset = dataset
                 self.data_iter = iter(dataset)
+                self.batch = getattr(dataset, "batch_size", 1)
                 self.algo = (
                     trt.CalibrationAlgoType.ENTROPY_CALIBRATION_2  # DLA quantization needs ENTROPY_CALIBRATION_2
                     if dla is not None
                     else trt.CalibrationAlgoType.MINMAX_CALIBRATION
                 )
-                self.batch = dataset.batch_size
                 self.cache = Path(cache)
 
             def get_algorithm(self) -> trt.CalibrationAlgoType:
@@ -164,9 +191,12 @@ def onnx2engine(
             def get_batch(self, names) -> list[int] | None:
                 """Get the next batch to use for calibration, as a list of device memory pointers."""
                 try:
-                    im0s = next(self.data_iter)["img"] / 255.0
-                    im0s = im0s.to("cuda") if im0s.device.type == "cpu" else im0s
-                    return [int(im0s.data_ptr())]
+                    batch = next(self.data_iter)
+                    if isinstance(batch, dict):
+                        batch = batch["img"] / 255.0
+                    if batch.device.type == "cpu":
+                        batch = batch.to("cuda")
+                    return [int(batch.contiguous().data_ptr())]
                 except StopIteration:
                     # Return None to signal to TensorRT there is no calibration data remaining
                     return None

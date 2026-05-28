@@ -3,13 +3,12 @@
     "jetson": {
       "adapter_id": "jetson",
       "default_toolchain": "tensorrt",
-      "compile_flags": {
-        "workspace_size_mb": 512
-      },
       "toolchains": {
         "tensorrt": {
           "display_name": "NVIDIA TensorRT",
-          "default_precision": "fp16"
+          "default_precision": "int8",
+          "calibration_data": "data/calibration",
+          "calib_batch_size": 1
         }
       },
       "boards": {

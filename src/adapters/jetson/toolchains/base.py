@@ -1,8 +1,7 @@
-"""Base contract for a Jetson deployment toolchain."""
-
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from pathlib import Path
 from typing import Any
 
 from core.types import DeploymentArtifact, FrameworkTag, PlatformConfig
@@ -28,6 +27,25 @@ class JetsonToolchain(ABC):
         if config.get("framework") != FrameworkTag.PYTORCH.value:
             raise ValueError(f"{self.name} toolchain requires a PyTorch model")
 
+    def _require_tensorflow(self, config: PlatformConfig) -> None:
+        if config.get("framework") != FrameworkTag.KERAS.value:
+            raise ValueError(
+                f"{self.name} toolchain requires a Keras/TensorFlow model for this path"
+            )
+
+    @staticmethod
+    def is_keras_model(model: Any) -> bool:
+        try:
+            import tensorflow as tf
+        except ImportError:
+            return False
+        return isinstance(model, tf.keras.Model)
+
+    @staticmethod
+    def is_tensorflow_export(model: Any, config: PlatformConfig) -> bool:
+        fmt = str(config.get("original_format", ""))
+        return fmt in ("keras", "h5")
+
     @staticmethod
     def resolve_precision(config: PlatformConfig, *, default: str = "fp16") -> str:
         precision = str(config.get("default_precision", default)).lower()
@@ -47,15 +65,19 @@ class JetsonToolchain(ABC):
             return False, True
         return False, False
 
-    @staticmethod
-    def resolve_workspace_gb(config: PlatformConfig) -> int | None:
-        compile_flags = config.get("compile_flags", {})
-        if not isinstance(compile_flags, dict):
-            return None
-        mb = compile_flags.get("workspace_size_mb")
-        if mb is None:
-            return None
-        return max(1, int(int(mb) / 1024)) or 1
+    def _require_calibration_data(self, config: PlatformConfig) -> Path:
+        raw = config.get("calibration_data")
+        if not raw:
+            raise ValueError(
+                "calibration_data is required for TensorRT INT8 "
+                "(path to an image directory or a .txt list of image paths)"
+            )
+        path = Path(str(raw))
+        if not path.is_absolute():
+            path = path.resolve()
+        if not path.exists():
+            raise FileNotFoundError(f"calibration_data not found: {path}")
+        return path
 
     def _require_input_shape(self, config: PlatformConfig) -> tuple[int, int, int]:
         input_shape = config.get("input_shape")

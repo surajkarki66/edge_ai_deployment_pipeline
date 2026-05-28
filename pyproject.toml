@@ -21,6 +21,8 @@ pytorch = ["torch>=2.0", "fvcore>=0.1.5"]
 tensorflow = ["tensorflow>=2.14"]
 arm = ["ncnn>=1.0.20260114", "pnnx>=20260409"]
 jetson = [
+    "tensorflow>=2.14",
+    "tf2onnx>=1.17.0",
     "onnx>=1.21.0",
     "onnxslim>=0.1.71",
     "onnxruntime>=1.26.0",
