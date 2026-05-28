@@ -88,11 +88,11 @@ class Pipeline:
         ]
 
         if result.selected_platform is None:
-            board_id = "zcu104"
+            board_id = "stm32n6570_dk"
             result.selected_platform = SelectedPlatform(
                 platform_id=board_id,
-                platform_family="fpga",
-                toolchain=self.requirements.toolchain or "vitis_ai",
+                platform_family="mcu",
+                toolchain=self.requirements.toolchain or "stm32n6",
                 score_breakdown=ScoreBreakdown(
                     platform_id=board_id,
                     total_score=1.0,

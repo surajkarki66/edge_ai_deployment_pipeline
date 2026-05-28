@@ -122,10 +122,54 @@
     },
     "mcu": {
       "adapter_id": "mcu",
-      "default_toolchain": "stm32cubeai",
+      "default_toolchain": "stm32n6",
       "toolchains": {
+        "stm32n6": {
+          "display_name": "STM32N6",
+          "quantization": "int8",
+          "board": "STM32N6570-DK",
+          "application": "image_classification",
+          "granularity": "per_channel",
+          "aspect_ratio": "crop",
+          "optimization": "balanced",
+          "supported_operations": [
+            "Conv2d",
+            "ConvTranspose2d",
+            "DepthwiseConv2d",
+            "Linear",
+            "Dense",
+            "BatchNorm2d",
+            "ReLU",
+            "ReLU6",
+            "LeakyReLU",
+            "PReLU",
+            "ELU",
+            "SELU",
+            "GELU",
+            "SiLU",
+            "Hardswish",
+            "Hardsigmoid",
+            "Sigmoid",
+            "Tanh",
+            "Softmax",
+            "LogSoftmax",
+            "MaxPool2d",
+            "AvgPool2d",
+            "AdaptiveAvgPool2d",
+            "AdaptiveMaxPool2d",
+            "Cat",
+            "Flatten",
+            "Unflatten",
+            "UpsamplingNearest2d",
+            "ZeroPad2d",
+            "ReflectionPad2d",
+            "ReplicationPad2d",
+            "ConstantPad2d",
+            "Identity"
+          ]
+        },
         "stm32cubeai": {
-          "display_name": "STM32Cube.AI (Neural-ART NPU)",
+          "display_name": "STM32Cube.AI",
           "quantization": "int8",
           "supported_operations": [
             "Conv2d",
@@ -171,12 +215,15 @@
           "tdp_watts": 1.5,
           "cost_usd": 120,
           "available_toolchains": [
-            "stm32cubeai"
+            "stm32n6"
           ],
           "toolchain_overrides": {
-            "stm32cubeai": {
+            "stm32n6": {
               "baseline_latency_ms": 50,
-              "target_mcu": "STM32N6570"
+              "target_mcu": "STM32N6570",
+              "board": "STM32N6570-DK",
+              "calibration_data": "/home/hsbi/Documents/Office_Works/edge_ai_deployment_pipeline/data/calibration/",
+              "application": "image_classification"
             }
           }
         }

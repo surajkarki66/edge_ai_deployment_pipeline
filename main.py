@@ -63,7 +63,7 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--toolchain",
         type=str,
         default=None,
-        help="Force toolchain (tensorrt, vitis_ai, stm32cubeai, ncnn)",
+        help="Force toolchain (stm32n6, vitis_ai, tensorrt, ncnn, …)",
     )
     parser.add_argument(
         "-v",

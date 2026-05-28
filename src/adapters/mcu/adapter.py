@@ -1,12 +1,11 @@
-"""MCU adapter — STM32CubeAI."""
+"""MCU adapter — dispatches to board toolchains (STM32N6, …)."""
 
 from __future__ import annotations
 
-import json
-from pathlib import Path
 from typing import Any
 
 from adapters.base import PlatformAdapter
+from adapters.mcu.toolchains.registry import MCU_TOOLCHAINS
 from core.registry import platform_registry
 from core.types import DeploymentArtifact, PlatformConfig
 
@@ -15,39 +14,24 @@ from core.types import DeploymentArtifact, PlatformConfig
 class MCUAdapter(PlatformAdapter):
     platform_id = "mcu"
 
+    def _resolve_toolchain(self, config: PlatformConfig) -> str:
+        toolchain = str(config.get("toolchain", config.get("default_toolchain", "stm32n6")))
+        if toolchain not in MCU_TOOLCHAINS:
+            raise ValueError(
+                f"Unknown MCU toolchain '{toolchain}'. "
+                f"Choose from: {', '.join(MCU_TOOLCHAINS)}"
+            )
+        return toolchain
+
     def validate(self, model: Any, config: PlatformConfig) -> bool:
-        return True  # Full validation deferred to CubeAI
+        return MCU_TOOLCHAINS[self._resolve_toolchain(config)].validate(model, config)
 
     def convert(self, model: Any, config: PlatformConfig) -> dict[str, Any]:
-        toolchain = str(config.get("toolchain", "stm32cubeai"))
-        return {
-            "c_model": "generated_weights",
-            "model_ref": model,
-            "toolchain": toolchain,
-            "target_mcu": config.get("target_mcu", "STM32H747"),
-        }
+        return MCU_TOOLCHAINS[self._resolve_toolchain(config)].convert(model, config)
 
     def build_artifact(
         self, converted_model: dict[str, Any], config: PlatformConfig
     ) -> DeploymentArtifact:
-        output_dir = Path(config.get("output_dir", "artifacts"))
-        output_dir.mkdir(parents=True, exist_ok=True)
-        platform_id = config.get("platform_id", self.platform_id)
-        artifact_path = output_dir / f"{platform_id}.c"
-
-        metadata = {
-            "toolchain": converted_model["toolchain"],
-            "target_mcu": converted_model["target_mcu"],
-            "quantization": config.get("quantization", "int8"),
-        }
-        artifact_path.write_text(
-            f"/* STM32CubeAI stub for {platform_id} */\n"
-            + json.dumps({"stub": True, **metadata}, indent=2)
-        )
-
-        return DeploymentArtifact(
-            platform_id=platform_id,
-            artifact_path=str(artifact_path.resolve()),
-            toolchain_used=str(converted_model["toolchain"]),
-            metadata=metadata,
+        return MCU_TOOLCHAINS[self._resolve_toolchain(config)].build_artifact(
+            converted_model, config
         )
