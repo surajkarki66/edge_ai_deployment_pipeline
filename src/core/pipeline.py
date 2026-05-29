@@ -15,13 +15,13 @@ from core.types import (
     SelectedPlatform,
     UserRequirements,
 )
-import adapters.arm  # noqa: F401 — register platform adapters
-import adapters.fpga  # noqa: F401
-import adapters.jetson  # noqa: F401
-import adapters.mcu  # noqa: F401
+# import adapters.arm  # noqa: F401 — register platform adapters
+# import adapters.fpga  # noqa: F401
+# import adapters.jetson  # noqa: F401
+# import adapters.mcu  # noqa: F401
 from stages.compatibility import CompatibilityStage
 from stages.constraint_check import ConstraintCheckStage
-from stages.deployment import DeploymentStage
+# from stages.deployment import DeploymentStage
 from stages.intake import IntakeStage
 from stages.profiler import ProfilerStage
 
@@ -57,7 +57,7 @@ class Pipeline:
         self._profiler = ProfilerStage(input_shape)
         self._compatibility = CompatibilityStage(platform_config_path)
         self._constraint = ConstraintCheckStage(platform_config_path)
-        self._deployment = DeploymentStage(self.output_dir)
+        # self._deployment = DeploymentStage(self.output_dir)
 
     def run(
         self,
@@ -78,31 +78,31 @@ class Pipeline:
             artifact=artifact,
         )
 
-        # Adapter test: intake + deployment only (re-enable profiler/compat/constraint later).
+        # Profiler test: intake + profiler only (re-enable compat/constraint/deployment later).
         stages = [
             (PipelineStage.INTAKE, self._run_intake),
-            # (PipelineStage.PROFILER, self._run_profiler),
+            (PipelineStage.PROFILER, self._run_profiler),
             # (PipelineStage.COMPATIBILITY, self._run_compatibility),
             # (PipelineStage.CONSTRAINT, self._run_constraint),
-            (PipelineStage.DEPLOYMENT, self._run_deployment),
+            # (PipelineStage.DEPLOYMENT, self._run_deployment),
         ]
 
-        if result.selected_platform is None:
-            board_id = "jetson_nano"
-            result.selected_platform = SelectedPlatform(
-                platform_id=board_id,
-                platform_family="jetson",
-                toolchain=self.requirements.toolchain or "tensorrt",
-                score_breakdown=ScoreBreakdown(
-                    platform_id=board_id,
-                    total_score=1.0,
-                    latency_score=None,
-                    power_score=None,
-                    cost_score=None,
-                    fallback_penalty_applied=0.0,
-                ),
-                reasoning="adapter test stub (constraint stage disabled)",
-            )
+        # if result.selected_platform is None:
+        #     board_id = "jetson_nano"
+        #     result.selected_platform = SelectedPlatform(
+        #         platform_id=board_id,
+        #         platform_family="jetson",
+        #         toolchain=self.requirements.toolchain or "tensorrt",
+        #         score_breakdown=ScoreBreakdown(
+        #             platform_id=board_id,
+        #             total_score=1.0,
+        #             latency_score=None,
+        #             power_score=None,
+        #             cost_score=None,
+        #             fallback_penalty_applied=0.0,
+        #         ),
+        #         reasoning="adapter test stub (constraint stage disabled)",
+        #     )
 
         start_idx = 0
         if start_from is not None:
@@ -155,17 +155,17 @@ class Pipeline:
         )
         logger.info("Selected platform: %s", result.selected_platform.to_dict())
 
-    def _run_deployment(self, result: PipelineResult) -> None:
-        if result.artifact is not None:
-            logger.info("Skipping deployment — artifact already provided")
-            return
-        if result.loaded_model is None or result.selected_platform is None:
-            raise ValueError("Deployment requires LoadedModel and SelectedPlatform")
-        logger.info("Stage 4: Deployment artifact generation")
-        result.artifact = self._deployment.run(
-            result.loaded_model,
-            result.selected_platform,
-            self.platform_config_path,
-            input_shape=self.input_shape,
-        )
-        logger.info("Deployment artifact: %s", result.artifact.to_dict())
+    # def _run_deployment(self, result: PipelineResult) -> None:
+    #     if result.artifact is not None:
+    #         logger.info("Skipping deployment — artifact already provided")
+    #         return
+    #     if result.loaded_model is None or result.selected_platform is None:
+    #         raise ValueError("Deployment requires LoadedModel and SelectedPlatform")
+    #     logger.info("Stage 4: Deployment artifact generation")
+    #     result.artifact = self._deployment.run(
+    #         result.loaded_model,
+    #         result.selected_platform,
+    #         self.platform_config_path,
+    #         input_shape=self.input_shape,
+    #     )
+    #     logger.info("Deployment artifact: %s", result.artifact.to_dict())

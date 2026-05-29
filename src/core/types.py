@@ -46,6 +46,7 @@ class ModelProfile:
     parameter_count: int
     model_size_mb: float
     peak_activation_memory_mb: float
+    inference_ram_mb: float
     layer_type_inventory: dict[str, int]
     input_resolution: tuple[int, ...]  # (channels, height, width)
     cpu_latency_ms: float

@@ -129,7 +129,8 @@ class ConstraintCheckStage:
         power_score = self._threshold_score(power_w, requirements.max_power_watts, lower_is_better=True)
         cost_score = self._threshold_score(cost_usd, requirements.max_cost_usd, lower_is_better=True)
 
-        memory_ok = profile.model_size_mb + profile.peak_activation_memory_mb <= memory_mb
+        runtime_mb = max(profile.peak_activation_memory_mb, profile.inference_ram_mb)
+        memory_ok = profile.model_size_mb + runtime_mb <= memory_mb
         memory_penalty = 0.0 if memory_ok else 50.0
 
         fallback_penalty = compat.fallback_penalty_estimate or 0.0
