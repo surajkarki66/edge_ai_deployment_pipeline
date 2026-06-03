@@ -1,5 +1,3 @@
-"""Stage 4 — adapter dispatch and artifact generation."""
-
 from __future__ import annotations
 
 import logging

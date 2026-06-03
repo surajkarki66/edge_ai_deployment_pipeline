@@ -1,5 +1,3 @@
-"""Stage 2 — per-board compatibility for computer-vision models (parallel checks)."""
-
 from __future__ import annotations
 
 import logging

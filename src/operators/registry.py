@@ -1,5 +1,3 @@
-"""Supported operations from platforms.json per board + toolchain."""
-
 from __future__ import annotations
 
 from core.types import PlatformConfig

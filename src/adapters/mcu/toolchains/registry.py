@@ -1,5 +1,3 @@
-"""MCU toolchain backends."""
-
 from adapters.mcu.toolchains.stm32n6 import Stm32N6Toolchain
 
 MCU_TOOLCHAINS = {

@@ -56,8 +56,8 @@ class Pipeline:
         self._intake = IntakeStage()
         self._profiler = ProfilerStage(input_shape)
         self._compatibility = CompatibilityStage(platform_config_path)
-        self._constraint = ConstraintCheckStage(platform_config_path)
-        # self._deployment = DeploymentStage(self.output_dir)
+        #self._constraint = ConstraintCheckStage(platform_config_path)
+        #self._deployment = DeploymentStage(self.output_dir)
 
     def run(
         self,

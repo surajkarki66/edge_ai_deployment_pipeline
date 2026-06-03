@@ -1,5 +1,3 @@
-"""Shared typed dataclasses for inter-stage pipeline data (computer-vision models only)."""
-
 from __future__ import annotations
 
 import json

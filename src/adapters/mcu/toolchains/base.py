@@ -1,5 +1,3 @@
-"""Base contract for an MCU deployment toolchain."""
-
 from __future__ import annotations
 
 from abc import ABC, abstractmethod

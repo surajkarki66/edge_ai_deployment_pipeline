@@ -1,5 +1,3 @@
-"""Load and query the platform / board hardware catalogue (platforms.json)."""
-
 from __future__ import annotations
 
 import json

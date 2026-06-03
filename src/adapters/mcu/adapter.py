@@ -1,5 +1,3 @@
-"""MCU adapter — dispatches to board toolchains (STM32N6, …)."""
-
 from __future__ import annotations
 
 from typing import Any

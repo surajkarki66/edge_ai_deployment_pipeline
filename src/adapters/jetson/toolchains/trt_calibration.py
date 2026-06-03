@@ -1,5 +1,3 @@
-"""Load image folders for TensorRT INT8 calibration."""
-
 from __future__ import annotations
 
 import logging

@@ -1,5 +1,3 @@
-"""Stage 3 — CV model requirement validation and board ranking."""
-
 from __future__ import annotations
 
 import logging

@@ -1,6 +1,4 @@
 #!/usr/bin/env python3
-"""Post-training quantization for PyTorch models (Vitis AI NNDCT)."""
-
 from __future__ import annotations
 
 import cv2

@@ -1,5 +1,3 @@
-"""AMD Vitis AI"""
-
 from __future__ import annotations
 
 import logging

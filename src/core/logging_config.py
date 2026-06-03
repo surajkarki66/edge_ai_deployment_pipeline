@@ -1,5 +1,3 @@
-"""Configure console and file logging under the repository ``logs/`` directory."""
-
 from __future__ import annotations
 
 import logging

@@ -1,5 +1,3 @@
-"""NVIDIA TensorRT deployment — PyTorch or Keras → ONNX → engine."""
-
 from __future__ import annotations
 
 import logging

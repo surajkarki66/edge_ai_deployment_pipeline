@@ -1,5 +1,3 @@
-"""NCNN deployment using PNNX"""
-
 from __future__ import annotations
 
 import logging

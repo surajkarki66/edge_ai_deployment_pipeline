@@ -1,5 +1,3 @@
-"""Abstract base for platform-specific model deployment adapters."""
-
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
