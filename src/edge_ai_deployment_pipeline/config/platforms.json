@@ -23,40 +23,16 @@
           "cost_usd": 99,
           "available_toolchains": [
             "tensorrt"
-          ],
-          "toolchain_overrides": {
-            "tensorrt": {
-              "baseline_latency_ms": 18
-            }
-          }
+          ]
         },
         "agx_orin": {
           "display_name": "NVIDIA Jetson AGX Orin 64GB",
           "memory_mb": 65536,
           "tdp_watts": 60,
-          "cost_usd": 1999,
+          "cost_usd": 2112,
           "available_toolchains": [
             "tensorrt"
-          ],
-          "toolchain_overrides": {
-            "tensorrt": {
-              "baseline_latency_ms": 2.5
-            }
-          }
-        },
-        "orin_nano": {
-          "display_name": "NVIDIA Jetson Orin Nano Super",
-          "memory_mb": 8192,
-          "tdp_watts": 25,
-          "cost_usd": 249,
-          "available_toolchains": [
-            "tensorrt"
-          ],
-          "toolchain_overrides": {
-            "tensorrt": {
-              "baseline_latency_ms": 5
-            }
-          }
+          ]
         }
       }
     },
@@ -126,7 +102,6 @@
           "display_name": "AMD Zynq UltraScale+ MPSoC ZCU104 Evaluation Kit",
           "device": "XCZU7EV-2FFVC1156",
           "memory_mb": 2048,
-          "block_ram_mb": 38,
           "tdp_watts": 10,
           "cost_usd": 1678,
           "available_toolchains": [
@@ -134,7 +109,6 @@
           ],
           "toolchain_overrides": {
             "vitis_ai": {
-              "baseline_latency_ms": 8,
               "dpu_arch": "DPUCZDX8G",
               "dpu_target": "DPUCZDX8G_ISA1_B4096",
               "calibration_data": "/home/hsbi/Documents/Office_Works/edge_ai_deployment_pipeline/data/calibration/"
@@ -207,7 +181,6 @@
           ],
           "toolchain_overrides": {
             "stm32n6": {
-              "baseline_latency_ms": 50,
               "target_mcu": "STM32N6570",
               "board": "STM32N6570-DK",
               "calibration_data": "/home/hsbi/Documents/Office_Works/edge_ai_deployment_pipeline/data/calibration/",
@@ -243,15 +216,10 @@
           "display_name": "Raspberry Pi 4 Model B (4 GB)",
           "memory_mb": 4096,
           "tdp_watts": 6,
-          "cost_usd": 60,
+          "cost_usd": 120,
           "available_toolchains": [
             "ncnn"
-          ],
-          "toolchain_overrides": {
-            "ncnn": {
-              "baseline_latency_ms": 12
-            }
-          }
+          ]
         }
       }
     }
