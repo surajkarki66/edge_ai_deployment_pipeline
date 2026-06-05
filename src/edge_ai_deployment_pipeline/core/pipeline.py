@@ -7,6 +7,7 @@ from pathlib import Path
 
 from edge_ai_deployment_pipeline.core.types import (
     CompatibilityReport,
+    DeploymentArtifact,
     LoadedModel,
     ModelProfile,
     PipelineResult,
@@ -15,6 +16,7 @@ from edge_ai_deployment_pipeline.core.types import (
 )
 from edge_ai_deployment_pipeline.stages.compatibility import CompatibilityStage
 from edge_ai_deployment_pipeline.stages.constraint_check import ConstraintCheckStage
+from edge_ai_deployment_pipeline.stages.deployment import DeploymentStage
 from edge_ai_deployment_pipeline.stages.intake import IntakeStage
 from edge_ai_deployment_pipeline.stages.profiler import ProfilerStage
 
@@ -26,27 +28,31 @@ class PipelineStage(str, Enum):
     PROFILER = "profiler"
     COMPATIBILITY = "compatibility"
     CONSTRAINT = "constraint"
+    DEPLOYMENT = "deployment"
 
 
 class Pipeline:
-    """Edge deployment pipeline: intake, profile, compatibility, constraint scoring."""
+    """Edge deployment pipeline: intake, profile, compatibility, constraint, deploy."""
 
     def __init__(
         self,
         model_path: str | Path,
         input_shape: tuple[int, int, int],
         requirements: UserRequirements,
+        output_dir: str | Path | None = None,
         platform_config_path: str | Path | None = None,
     ) -> None:
         self.model_path = Path(model_path)
         self.input_shape = input_shape
         self.requirements = requirements
+        self.output_dir = Path(output_dir or "artifacts")
         self.platform_config_path = platform_config_path
 
         self._intake = IntakeStage()
         self._profiler = ProfilerStage(input_shape)
         self._compatibility = CompatibilityStage(platform_config_path)
         self._constraint = ConstraintCheckStage(platform_config_path)
+        self._deployment = DeploymentStage(self.output_dir)
 
     def run(
         self,
@@ -55,18 +61,21 @@ class Pipeline:
         profile: ModelProfile | None = None,
         compatibility: CompatibilityReport | None = None,
         selected_platform: SelectedPlatform | None = None,
+        artifact: DeploymentArtifact | None = None,
     ) -> PipelineResult:
         result = PipelineResult(
             loaded_model=loaded_model,
             profile=profile,
             compatibility=compatibility,
             selected_platform=selected_platform,
+            artifact=artifact,
         )
 
         self._run_intake(result)
         self._run_profiler(result)
         self._run_compatibility(result)
         self._run_constraint(result)
+        self._run_deployment(result)
         return result
 
     def _run_intake(self, result: PipelineResult) -> None:
@@ -110,3 +119,18 @@ class Pipeline:
             self.requirements,
         )
         logger.info("Selected platform: %s", result.selected_platform.to_dict())
+
+    def _run_deployment(self, result: PipelineResult) -> None:
+        if result.artifact is not None:
+            logger.info("Skipping deployment — artifact already provided")
+            return
+        if result.loaded_model is None or result.selected_platform is None:
+            raise ValueError("Deployment requires LoadedModel and SelectedPlatform")
+        logger.info("Stage 4: Deployment artifact generation")
+        result.artifact = self._deployment.run(
+            result.loaded_model,
+            result.selected_platform,
+            self.platform_config_path,
+            input_shape=self.input_shape,
+        )
+        logger.info("Deployment artifact: %s", result.artifact.to_dict())

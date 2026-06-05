@@ -114,42 +114,34 @@ class ConstraintCheckStage:
         spec: PlatformConfig,
         requirements: UserRequirements,
     ) -> tuple[ScoreBreakdown, str]:
-        base_latency = float(spec.get("baseline_latency_ms", profile.cpu_latency_ms))
-        estimated_latency = base_latency
-
         power_w = float(spec.get("tdp_watts", 10.0))
         cost_usd = float(spec.get("cost_usd", 100.0))
         memory_mb = float(spec.get("memory_mb", 4096))
 
-        latency_score = self._latency_score(estimated_latency, requirements.max_latency_ms)
-        power_score = self._threshold_score(power_w, requirements.max_power_watts, lower_is_better=True)
-        cost_score = self._threshold_score(cost_usd, requirements.max_cost_usd, lower_is_better=True)
+        power_score = self._threshold_score(
+            power_w, requirements.max_power_watts, lower_is_better=True
+        )
+        cost_score = self._threshold_score(
+            cost_usd, requirements.max_cost_usd, lower_is_better=True
+        )
 
         runtime_mb = max(profile.peak_activation_memory_mb, profile.inference_ram_mb)
         memory_ok = profile.model_size_mb + runtime_mb <= memory_mb
         memory_penalty = 0.0 if memory_ok else 50.0
 
-        weights = {"latency": 0.5, "power": 0.25, "cost": 0.25}
-        scores = [s for s in (latency_score, power_score, cost_score) if s is not None]
-
-        if not scores:
-            total = 100.0 - memory_penalty
-        else:
-            total = 0.0
-            if latency_score is not None:
-                total += latency_score * weights["latency"]
-            if power_score is not None:
-                total += power_score * weights["power"]
-            if cost_score is not None:
-                total += cost_score * weights["cost"]
-            total -= memory_penalty
+        weights = {"power": 0.5, "cost": 0.5}
+        total = 0.0
+        if power_score is not None:
+            total += power_score * weights["power"]
+        if cost_score is not None:
+            total += cost_score * weights["cost"]
+        total -= memory_penalty
 
         display_name = spec.get("display_name", board_id)
         details: dict[str, object] = {
             "board_id": board_id,
             "platform_family": compat.platform_family,
             "display_name": display_name,
-            "estimated_latency_ms": estimated_latency,
             "power_watts": power_w,
             "cost_usd": cost_usd,
             "memory_mb": memory_mb,
@@ -160,7 +152,8 @@ class ConstraintCheckStage:
 
         reasoning_parts = [
             f"{display_name} ({board_id}): score={total:.1f}",
-            f"est. latency {estimated_latency:.1f}ms",
+            f"power {power_w:.1f}W",
+            f"cost ${cost_usd:.0f}",
         ]
         if toolchain:
             reasoning_parts[0] = f"{display_name} [{toolchain}]: score={total:.1f}"
@@ -173,21 +166,12 @@ class ConstraintCheckStage:
             ScoreBreakdown(
                 platform_id=board_id,
                 total_score=round(max(total, 0.0), 2),
-                latency_score=latency_score,
                 power_score=power_score,
                 cost_score=cost_score,
                 details=details,
             ),
             "; ".join(reasoning_parts),
         )
-
-    def _latency_score(self, estimated_ms: float, max_ms: float | None) -> float | None:
-        if max_ms is None:
-            return None
-        if estimated_ms <= max_ms:
-            return 100.0 * (1.0 - estimated_ms / max_ms * 0.5)
-        overrun = (estimated_ms - max_ms) / max_ms
-        return max(0.0, 100.0 - overrun * 100)
 
     def _threshold_score(
         self,

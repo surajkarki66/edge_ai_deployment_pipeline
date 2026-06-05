@@ -94,7 +94,8 @@
           "dpu_target": "DPUCZDX8G_ISA1_B4096",
           "dpu_silicon_family": "Zynq UltraScale+ MPSoC",
           "vitis_ai_image": "xilinx/vitis-ai-pytorch-cpu:latest",
-          "calib_batch_size": 16
+          "calib_batch_size": 16,
+          "calibration_data": "data/calibration"
         }
       },
       "boards": {
@@ -110,8 +111,7 @@
           "toolchain_overrides": {
             "vitis_ai": {
               "dpu_arch": "DPUCZDX8G",
-              "dpu_target": "DPUCZDX8G_ISA1_B4096",
-              "calibration_data": "/home/hsbi/Documents/Office_Works/edge_ai_deployment_pipeline/data/calibration/"
+              "dpu_target": "DPUCZDX8G_ISA1_B4096"
             }
           }
         }
@@ -129,6 +129,7 @@
           "granularity": "per_channel",
           "aspect_ratio": "crop",
           "optimization": "balanced",
+          "calibration_data": "data/calibration",
           "supported_operations": [
             "Activation",
             "InputLayer",
@@ -183,7 +184,6 @@
             "stm32n6": {
               "target_mcu": "STM32N6570",
               "board": "STM32N6570-DK",
-              "calibration_data": "/home/hsbi/Documents/Office_Works/edge_ai_deployment_pipeline/data/calibration/",
               "application": "image_classification"
             }
           }

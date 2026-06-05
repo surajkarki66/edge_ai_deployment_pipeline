@@ -16,24 +16,47 @@ from edge_ai_deployment_pipeline.core.types import (
 logger = logging.getLogger(__name__)
 
 
-def _get_platform_adapter(adapter_id: str) -> PlatformAdapter:
-    from edge_ai_deployment_pipeline.adapters.arm.adapter import ARMAdapter
-    from edge_ai_deployment_pipeline.adapters.fpga.adapter import FPGAAdapter
-    from edge_ai_deployment_pipeline.adapters.jetson.adapter import JetsonAdapter
-    from edge_ai_deployment_pipeline.adapters.mcu.adapter import MCUAdapter
+def _resolve_config_path(raw: str, config_path: str | Path | None) -> Path:
+    """Resolve a config path; relative paths search cwd then ancestors of the catalogue file."""
+    path = Path(raw)
+    if path.is_absolute():
+        return path
 
-    adapters: dict[str, PlatformAdapter] = {
-        "arm": ARMAdapter(),
-        "fpga": FPGAAdapter(),
-        "jetson": JetsonAdapter(),
-        "mcu": MCUAdapter(),
-    }
-    try:
-        return adapters[adapter_id]
-    except KeyError as exc:
-        raise KeyError(
-            f"Unknown platform adapter '{adapter_id}'. Choose from: {', '.join(adapters)}"
-        ) from exc
+    candidates = [Path.cwd() / path]
+    if config_path is not None:
+        anchor = Path(config_path).resolve().parent
+        for _ in range(8):
+            candidates.append(anchor / path)
+            anchor = anchor.parent
+
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate.resolve()
+    return (Path.cwd() / path).resolve()
+
+
+def _get_platform_adapter(adapter_id: str) -> PlatformAdapter:
+    if adapter_id == "arm":
+        from edge_ai_deployment_pipeline.adapters.arm.adapter import ARMAdapter
+
+        return ARMAdapter()
+    if adapter_id == "fpga":
+        from edge_ai_deployment_pipeline.adapters.fpga.adapter import FPGAAdapter
+
+        return FPGAAdapter()
+    if adapter_id == "jetson":
+        from edge_ai_deployment_pipeline.adapters.jetson.adapter import JetsonAdapter
+
+        return JetsonAdapter()
+    if adapter_id == "mcu":
+        from edge_ai_deployment_pipeline.adapters.mcu.adapter import MCUAdapter
+
+        return MCUAdapter()
+
+    known = ("arm", "fpga", "jetson", "mcu")
+    raise KeyError(
+        f"Unknown platform adapter '{adapter_id}'. Choose from: {', '.join(known)}"
+    )
 
 
 class DeploymentStage:
@@ -110,4 +133,8 @@ class DeploymentStage:
             spec["framework"] = loaded.framework.value
             spec["source_path"] = loaded.source_path
             spec["original_format"] = loaded.original_format
+        if spec.get("calibration_data"):
+            spec["calibration_data"] = str(
+                _resolve_config_path(str(spec["calibration_data"]), config_path)
+            )
         return spec

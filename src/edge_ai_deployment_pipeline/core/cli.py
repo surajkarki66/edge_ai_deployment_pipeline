@@ -28,7 +28,7 @@ def _parse_input_shape(value: str) -> tuple[int, int, int]:
 
 def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Profile a CV model, check edge compatibility, and rank viable boards.",
+        description="Profile a CV model, rank edge boards, and emit a deployable artifact.",
     )
     parser.add_argument(
         "model",
@@ -43,14 +43,30 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="Model input as channels,height,width (e.g. 3,224,224)",
     )
     parser.add_argument(
+        "-o",
+        "--output-dir",
+        type=Path,
+        default=Path("artifacts"),
+        help="Directory for deployment artifacts (default: artifacts)",
+    )
+    parser.add_argument(
         "--platform-config",
         type=Path,
         default=None,
         help="Path to platforms.json (default: bundled config/catalogue platforms.json)",
     )
-    parser.add_argument("--max-latency-ms", type=float, default=None, help="Max inference latency (ms)")
-    parser.add_argument("--max-power-w", type=float, default=None, help="Max board power (W)")
-    parser.add_argument("--max-cost-usd", type=float, default=None, help="Max board cost (USD)")
+    parser.add_argument(
+        "--max-power-w",
+        type=float,
+        default=25.0,
+        help="Max board power budget in W (default: 25)",
+    )
+    parser.add_argument(
+        "--max-cost-usd",
+        type=float,
+        default=500.0,
+        help="Max board cost budget in USD (default: 500)",
+    )
     parser.add_argument(
         "--toolchain",
         type=str,
@@ -76,7 +92,6 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
     requirements = UserRequirements(
-        max_latency_ms=args.max_latency_ms,
         max_power_watts=args.max_power_w,
         max_cost_usd=args.max_cost_usd,
         toolchain=args.toolchain,
@@ -86,6 +101,7 @@ def main(argv: list[str] | None = None) -> int:
         model_path=args.model,
         input_shape=args.input_shape,
         requirements=requirements,
+        output_dir=args.output_dir,
         platform_config_path=args.platform_config,
     ).run()
 

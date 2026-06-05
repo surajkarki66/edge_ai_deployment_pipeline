@@ -92,9 +92,8 @@ class CompatibilityReport:
 
 @dataclass
 class UserRequirements:
-    max_latency_ms: float | None = None
-    max_power_watts: float | None = None
-    max_cost_usd: float | None = None
+    max_power_watts: float = 25.0
+    max_cost_usd: float = 500.0
     toolchain: str | None = None  # force a toolchain; None = auto-select best per board
 
     def to_dict(self) -> dict[str, Any]:
@@ -105,7 +104,6 @@ class UserRequirements:
 class ScoreBreakdown:
     platform_id: str
     total_score: float
-    latency_score: float | None
     power_score: float | None
     cost_score: float | None
     details: dict[str, Any] = field(default_factory=dict)
@@ -152,6 +150,7 @@ class PipelineResult:
     profile: ModelProfile | None = None
     compatibility: CompatibilityReport | None = None
     selected_platform: SelectedPlatform | None = None
+    artifact: DeploymentArtifact | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -161,6 +160,7 @@ class PipelineResult:
             "selected_platform": (
                 self.selected_platform.to_dict() if self.selected_platform else None
             ),
+            "artifact": self.artifact.to_dict() if self.artifact else None,
         }
 
     def to_json(self, indent: int | None = 2) -> str:
