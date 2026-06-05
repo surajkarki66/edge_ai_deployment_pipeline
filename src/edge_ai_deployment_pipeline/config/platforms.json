@@ -1,0 +1,259 @@
+{
+  "platforms": {
+    "jetson": {
+      "adapter_id": "jetson",
+      "default_toolchain": "tensorrt",
+      "toolchains": {
+        "tensorrt": {
+          "display_name": "NVIDIA TensorRT",
+          "layer_check_mode": "denylist",
+          "unsupported_operations": [
+            "Einsum"
+          ],
+          "default_precision": "int8",
+          "calibration_data": "data/calibration",
+          "calib_batch_size": 1
+        }
+      },
+      "boards": {
+        "jetson_nano": {
+          "display_name": "NVIDIA Jetson Nano (EOL)",
+          "memory_mb": 4096,
+          "tdp_watts": 10,
+          "cost_usd": 99,
+          "available_toolchains": [
+            "tensorrt"
+          ],
+          "toolchain_overrides": {
+            "tensorrt": {
+              "baseline_latency_ms": 18
+            }
+          }
+        },
+        "agx_orin": {
+          "display_name": "NVIDIA Jetson AGX Orin 64GB",
+          "memory_mb": 65536,
+          "tdp_watts": 60,
+          "cost_usd": 1999,
+          "available_toolchains": [
+            "tensorrt"
+          ],
+          "toolchain_overrides": {
+            "tensorrt": {
+              "baseline_latency_ms": 2.5
+            }
+          }
+        },
+        "orin_nano": {
+          "display_name": "NVIDIA Jetson Orin Nano Super",
+          "memory_mb": 8192,
+          "tdp_watts": 25,
+          "cost_usd": 249,
+          "available_toolchains": [
+            "tensorrt"
+          ],
+          "toolchain_overrides": {
+            "tensorrt": {
+              "baseline_latency_ms": 5
+            }
+          }
+        }
+      }
+    },
+    "fpga": {
+      "adapter_id": "fpga",
+      "default_toolchain": "vitis_ai",
+      "compile_flags": {},
+      "toolchains": {
+        "vitis_ai": {
+          "display_name": "AMD Vitis AI",
+          "layer_check_mode": "allowlist",
+          "supported_operations": [
+            "Conv2d",
+            "Conv2D",
+            "ConvTranspose2d",
+            "Conv2DTranspose",
+            "DepthwiseConv2d",
+            "DepthwiseConv2D",
+            "DepthwiseConv2dTranspose",
+            "DepthwiseConv2DTranspose",
+            "MaxPool2d",
+            "MaxPool",
+            "MaxPooling2D",
+            "AvgPool2d",
+            "AvgPool",
+            "AveragePooling2D",
+            "GlobalAveragePooling2D",
+            "ReLU",
+            "ReLU6",
+            "LeakyReLU",
+            "Hardsigmoid",
+            "HardSigmoid",
+            "Hardswish",
+            "HardSwish",
+            "Activation",
+            "Add",
+            "Mul",
+            "Sum",
+            "Reorg",
+            "Correlation",
+            "Correlation1D",
+            "Correlation2D",
+            "Argmax",
+            "ArgMax",
+            "Max",
+            "Linear",
+            "Dense",
+            "Softmax",
+            "Cat",
+            "Concat",
+            "BatchNorm2d",
+            "BatchNorm",
+            "BatchNormalization",
+            "Flatten",
+            "InputLayer"
+          ],
+          "quantization": "int8",
+          "dpu_arch": "DPUCZDX8G",
+          "dpu_target": "DPUCZDX8G_ISA1_B4096",
+          "dpu_silicon_family": "Zynq UltraScale+ MPSoC",
+          "vitis_ai_image": "xilinx/vitis-ai-pytorch-cpu:latest",
+          "calib_batch_size": 16
+        }
+      },
+      "boards": {
+        "zcu104": {
+          "display_name": "AMD Zynq UltraScale+ MPSoC ZCU104 Evaluation Kit",
+          "device": "XCZU7EV-2FFVC1156",
+          "memory_mb": 2048,
+          "block_ram_mb": 38,
+          "tdp_watts": 10,
+          "cost_usd": 1678,
+          "available_toolchains": [
+            "vitis_ai"
+          ],
+          "toolchain_overrides": {
+            "vitis_ai": {
+              "baseline_latency_ms": 8,
+              "dpu_arch": "DPUCZDX8G",
+              "dpu_target": "DPUCZDX8G_ISA1_B4096",
+              "calibration_data": "/home/hsbi/Documents/Office_Works/edge_ai_deployment_pipeline/data/calibration/"
+            }
+          }
+        }
+      }
+    },
+    "mcu": {
+      "adapter_id": "mcu",
+      "default_toolchain": "stm32n6",
+      "toolchains": {
+        "stm32n6": {
+          "display_name": "STM32N6",
+          "quantization": "int8",
+          "board": "STM32N6570-DK",
+          "application": "image_classification",
+          "granularity": "per_channel",
+          "aspect_ratio": "crop",
+          "optimization": "balanced",
+          "supported_operations": [
+            "Activation",
+            "InputLayer",
+            "Conv2d",
+            "ConvTranspose2d",
+            "DepthwiseConv2d",
+            "Linear",
+            "Dense",
+            "BatchNorm2d",
+            "BatchNormalization",
+            "ReLU",
+            "ReLU6",
+            "LeakyReLU",
+            "PReLU",
+            "ELU",
+            "SELU",
+            "GELU",
+            "SiLU",
+            "Hardswish",
+            "Hardsigmoid",
+            "Sigmoid",
+            "Tanh",
+            "Softmax",
+            "LogSoftmax",
+            "MaxPool2d",
+            "AvgPool2d",
+            "AveragePooling2D",
+            "AdaptiveAvgPool2d",
+            "AdaptiveMaxPool2d",
+            "Cat",
+            "Flatten",
+            "Unflatten",
+            "UpsamplingNearest2d",
+            "ZeroPad2d",
+            "ReflectionPad2d",
+            "ReplicationPad2d",
+            "ConstantPad2d",
+            "Identity"
+          ]
+        }
+      },
+      "boards": {
+        "stm32n6570_dk": {
+          "display_name": "STM32N6570-DK",
+          "memory_mb": 4300,
+          "tdp_watts": 1.5,
+          "cost_usd": 120,
+          "available_toolchains": [
+            "stm32n6"
+          ],
+          "toolchain_overrides": {
+            "stm32n6": {
+              "baseline_latency_ms": 50,
+              "target_mcu": "STM32N6570",
+              "board": "STM32N6570-DK",
+              "calibration_data": "/home/hsbi/Documents/Office_Works/edge_ai_deployment_pipeline/data/calibration/",
+              "application": "image_classification"
+            }
+          }
+        }
+      }
+    },
+    "arm": {
+      "adapter_id": "arm",
+      "default_toolchain": "ncnn",
+      "compile_flags": {
+        "num_threads": 4
+      },
+      "toolchains": {
+        "ncnn": {
+          "display_name": "ncnn",
+          "layer_check_mode": "denylist",
+          "fp16": true,
+          "unsupported_operations": [
+            "Gather",
+            "Expand",
+            "ScatterND",
+            "Slice",
+            "Shape",
+            "Unsqueeze"
+          ]
+        }
+      },
+      "boards": {
+        "raspberry_pi_4": {
+          "display_name": "Raspberry Pi 4 Model B (4 GB)",
+          "memory_mb": 4096,
+          "tdp_watts": 6,
+          "cost_usd": 60,
+          "available_toolchains": [
+            "ncnn"
+          ],
+          "toolchain_overrides": {
+            "ncnn": {
+              "baseline_latency_ms": 12
+            }
+          }
+        }
+      }
+    }
+  }
+}
