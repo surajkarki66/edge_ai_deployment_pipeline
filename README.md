@@ -1,6 +1,22 @@
 # Edge AI Deployment Pipeline (Computer Vision)
 
-Modular pipeline for **computer-vision models** — profile, check edge compatibility, and rank boards against your constraints.
+Modular pipeline for **computer-vision models** — profile, check compatibility, rank boards, and deploy to the selected edge target.
+
+Requires **Python 3.11+**.
+
+## Pipeline
+
+End-to-end flow (all stages run in order):
+
+| Stage | Purpose |
+|-------|---------|
+| **Intake** | Load model from disk (PyTorch or Keras) |
+| **Profiler** | FLOPs, parameter count, memory estimates, layer inventory, CPU latency |
+| **Compatibility** | Match layer types against each board's toolchain allowlist/denylist |
+| **Constraint** | Score viable boards on power, cost, and memory; pick best board × toolchain |
+| **Deployment** | Emit a deployable artifact for the selected target |
+
+On success the CLI prints a **JSON summary** to stdout and writes deployment artifacts under `-o` (default `artifacts/`).
 
 ## Layout
 
@@ -8,9 +24,9 @@ Modular pipeline for **computer-vision models** — profile, check edge compatib
 edge_ai_deployment_pipeline/          # project root
 ├── src/edge_ai_deployment_pipeline/
 │   ├── main.py                       # CLI entry point
-│   ├── core/
-│   ├── stages/
-│   ├── adapters/
+│   ├── core/                         # pipeline, CLI, types
+│   ├── stages/                       # intake, profiler, compatibility, constraint, deployment
+│   ├── adapters/                     # platform toolchains (jetson, fpga, mcu, arm)
 │   └── config/                       # platforms.json
 ├── setup.py
 ├── pyproject.toml
@@ -20,39 +36,95 @@ edge_ai_deployment_pipeline/          # project root
 
 ## Install
 
+Minimal install (pulls all runtime deps from `pyproject.toml`):
+
 ```bash
 python -m venv .venv
 source .venv/bin/activate
 pip install -e .
 ```
 
-Or install from `requirements.txt` first, then the package in editable mode:
+Or install pinned deps from `requirements.txt` first, then the package:
 
 ```bash
 pip install -r requirements.txt
 pip install -e .
 ```
 
-Optional developer tools:
+Optional extras (install only what you need):
 
 ```bash
-pip install -e ".[dev]"
+pip install -e ".[pytorch]"      # torch, fvcore
+pip install -e ".[tensorflow]"  # tensorflow
+pip install -e ".[arm]"          # ncnn, pnnx
+pip install -e ".[jetson]"        # TensorRT / ONNX stack (includes tf2onnx)
+pip install -e ".[dev]"           # mypy, ruff, pre-commit
 ```
 
 ## Run
 
-After install, use the CLI entry point:
-
 ```bash
-edge-ai-deploy path/to/model.pt --input-shape 3,224,224 --max-latency-ms 20 --max-power-w 15 --max-cost-usd 200 --toolchain tensorrt
+edge-ai-deploy path/to/model.pt --input-shape 3,224,224 -o artifacts/
 ```
 
-Or invoke the package module directly:
+`--input-shape` is **required** (`C,H,W`, e.g. `3,224,224`).
+
+Supported model formats: `.pt`, `.pth`, `.keras`, `.h5`.
+
+Or invoke the module directly:
 
 ```bash
 python -m edge_ai_deployment_pipeline.main path/to/model.pt --input-shape 3,224,224
 ```
 
-Optional: `--platform-config path/to/platforms.json`, `--max-latency-ms`, `--max-power-w`, `--max-cost-usd`, `--toolchain`, `-v`.
+### CLI options
 
-Default platform catalogue: bundled `config/platforms.json` (inside the installed package).
+| Flag | Default | Description |
+|------|---------|-------------|
+| `-o`, `--output-dir` | `artifacts` | Directory for deployment artifacts |
+| `--platform-config` | bundled `platforms.json` | Custom platform catalogue |
+| `--max-power-w` | `25` | Max board power budget (W) |
+| `--max-cost-usd` | `500` | Max board cost budget (USD) |
+| `--toolchain` | — | Force a toolchain (`tensorrt`, `vitis_ai`, `ncnn`, `stm32n6`, …) |
+| `-v`, `--verbose` | off | Debug logging |
+
+## Constraint scoring
+
+For each viable board, the best toolchain is scored and the highest total wins.
+
+**Score weights:** power 50%, cost 50%.
+
+**Memory check:** `model_size_mb + max(peak_activation_memory_mb, inference_ram_mb)` must fit in the board's `memory_mb`. If not, a **−50** penalty is applied.
+
+Boards over `--max-power-w` or `--max-cost-usd` receive lower power/cost sub-scores but are not excluded outright.
+
+## Compatibility
+
+Each toolchain uses either an **allowlist** (FPGA Vitis AI, MCU STM32N6) or **denylist** (Jetson TensorRT, ARM ncnn) of layer/operation names.
+
+| Status | Meaning |
+|--------|---------|
+| `fully_compatible` | No unsupported operations |
+| `partial` | Some unsupported ops, but ≤ 50% of layer inventory |
+| `incompatible` | > 50% unsupported — board is excluded |
+
+Partial boards remain viable but are noted in constraint reasoning.
+
+## Supported platforms
+
+Configured in bundled `config/platforms.json`:
+
+| Family | Board | Toolchain |
+|--------|-------|-----------|
+| Jetson | `jetson_nano`, `agx_orin` | TensorRT |
+| FPGA | `zcu104` | Vitis AI |
+| MCU | `stm32n6570_dk` | STM32N6 |
+| ARM | `raspberry_pi_4` | ncnn |
+
+Override with `--platform-config path/to/platforms.json`. Each board must declare `available_toolchains`.
+
+## Deployment notes
+
+The **deployment** stage invokes the platform adapter for the winning board. That requires the corresponding toolchain to be installed and configured on the host (Vitis AI Docker image, TensorRT, ncnn, STM32N6 SDK, etc.).
+
+Quantized toolchains need a valid `calibration_data` path in `platforms.json` — update board `toolchain_overrides` to point at your calibration dataset before running a full deploy.
