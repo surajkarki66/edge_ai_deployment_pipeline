@@ -25,6 +25,10 @@ CONDA_ACTIVATE_PYTORCH = (
     "source /opt/vitis_ai/conda/bin/activate vitis-ai-pytorch"
 )
 
+_TOOLCHAIN_DIR = Path(__file__).resolve().parent
+_PYTORCH_SCRIPT = _TOOLCHAIN_DIR / "scripts" / "vai_q_pytorch.py"
+_ARCH_DIR = _TOOLCHAIN_DIR / "architectures"
+
 ARCH_FILES = {
     "DPUCZDX8G_ISA1_B512": "arch_B512.json",
     "DPUCZDX8G_ISA1_B800": "arch_B800.json",
@@ -35,10 +39,6 @@ ARCH_FILES = {
     "DPUCZDX8G_ISA1_B3136": "arch_B3136.json",
     "DPUCZDX8G_ISA1_B4096": "arch_B4096.json",
 }
-
-_TOOLCHAIN_DIR = Path(__file__).resolve().parent
-_SCRIPT_PATH = _TOOLCHAIN_DIR / "scripts" / "vai_q_pytorch.py"
-_ARCH_DIR = _TOOLCHAIN_DIR / "architectures"
 
 
 def resolve_vitis_ai_repo(config: dict[str, Any]) -> Path:
@@ -79,8 +79,9 @@ def run_in_vitis_container(
     image: str,
     command: str,
     vitis_ai_repo: Path | None = None,
+    conda_activate: str = CONDA_ACTIVATE_PYTORCH,
 ) -> None:
-    """Run a shell command inside the Vitis AI PyTorch CPU container."""
+    """Run a shell command inside a Vitis AI Docker container."""
     workspace = workspace.resolve()
     workspace.mkdir(parents=True, exist_ok=True)
 
@@ -88,7 +89,7 @@ def run_in_vitis_container(
     if vitis_ai_repo and vitis_ai_repo.is_dir():
         volumes.append(f"{vitis_ai_repo.resolve()}:/Vitis-AI")
 
-    inner = f"{CONDA_ACTIVATE_PYTORCH} && cd /workspace && {command}"
+    inner = f"{conda_activate} && cd /workspace && {command}"
     cmd = [
         "docker",
         "run",
@@ -161,7 +162,7 @@ def stage_calibration_images(
     logger.info("Staged %d calibration images under %s", len(rel_paths), cal_images_dir)
 
 
-def _prepare_workspace(
+def _prepare_pytorch_workspace(
     workspace: Path,
     *,
     model_path: Path,
@@ -173,7 +174,7 @@ def _prepare_workspace(
     arch_dst = workspace / "architectures"
     arch_dst.mkdir(parents=True, exist_ok=True)
 
-    shutil.copy2(_SCRIPT_PATH, scripts_dir / "vai_q_pytorch.py")
+    shutil.copy2(_PYTORCH_SCRIPT, scripts_dir / "vai_q_pytorch.py")
     shutil.copy2(arch_path, arch_dst / arch_path.name)
     stage_calibration_images(workspace, calibration_data)
 
@@ -298,7 +299,7 @@ def export_pytorch_to_dpu(
     arch_in_workspace = workspace / "architectures" / arch_src.name
     repo_mount = vitis_repo if vitis_repo.is_dir() else None
 
-    _prepare_workspace(
+    _prepare_pytorch_workspace(
         workspace,
         model_path=model_path,
         calibration_data=calibration_data,

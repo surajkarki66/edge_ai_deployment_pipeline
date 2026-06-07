@@ -100,15 +100,22 @@ class DeploymentStage:
                 f"MCU deployment ({board_id}) requires a Keras model (.keras or .h5). "
                 f"Got {loaded.framework.value} model: {loaded.source_path}"
             )
+        if adapter_id == "fpga" and loaded.framework != FrameworkTag.PYTORCH:
+            raise ValueError(
+                f"FPGA deployment ({board_id}) requires a PyTorch model (.pt). "
+                f"Got {loaded.framework.value} model: {loaded.source_path}"
+            )
 
         if not adapter.validate(loaded.model, config):
-            fmt = getattr(loaded, "original_format", "")
             hint = ""
-            if fmt == "torchscript" and adapter_id == "fpga":
-                hint = (
-                    " Vitis-AI requires an eager PyTorch model (torch.save(nn.Module)), "
-                    "not TorchScript — see toolchain error if raised during convert."
-                )
+            if adapter_id == "fpga" and loaded.framework == FrameworkTag.PYTORCH:
+                if getattr(loaded, "original_format", "") == "torchscript":
+                    hint = (
+                        " Vitis-AI requires an eager PyTorch model (torch.save(nn.Module)), "
+                        "not TorchScript."
+                    )
+            elif adapter_id == "fpga" and loaded.framework != FrameworkTag.PYTORCH:
+                hint = " Vitis-AI FPGA deployment supports PyTorch (.pt) models only."
             elif adapter_id == "jetson" and selected.toolchain == "tensorrt":
                 try:
                     import torch

@@ -20,17 +20,17 @@ DPU_ARCH = "DPUCZDX8G"
 
 
 class VitisAiToolchain(FpgaToolchain):
-    """PyTorch post-training quantization + DPU compilation via Vitis-AI Docker."""
+    """PyTorch PTQ + DPU compilation via Vitis-AI Docker."""
 
     name = "vitis_ai"
 
     def validate(self, model: Any, config: PlatformConfig) -> bool:
         if not config.get("supported_operations"):
             return False
-        if config.get("framework") not in (None, FrameworkTag.PYTORCH.value):
-            return False
         if not _docker_available():
             logger.warning("Vitis-AI export requires Docker")
+            return False
+        if config.get("framework") != FrameworkTag.PYTORCH.value:
             return False
         if not self.is_pytorch_model(model):
             return False
@@ -41,11 +41,6 @@ class VitisAiToolchain(FpgaToolchain):
         return True
 
     def convert(self, model: Any, config: PlatformConfig) -> dict[str, Any]:
-        self._require_pytorch(config)
-        self.require_eager_pytorch(
-            original_format=str(config.get("original_format", "")),
-            model=model,
-        )
         channels, height, width = self._require_input_shape(config)
         calibration_data = self._require_calibration_data(config)
         dpu_target = resolve_dpu_target(config)
@@ -53,7 +48,14 @@ class VitisAiToolchain(FpgaToolchain):
         if not source_path:
             raise ValueError("source_path is required for Vitis-AI export")
 
+        self._require_pytorch(config)
+        self.require_eager_pytorch(
+            original_format=str(config.get("original_format", "")),
+            model=model,
+        )
+
         return {
+            "framework": FrameworkTag.PYTORCH.value,
             "source_path": str(source_path),
             "original_format": str(config.get("original_format", "")),
             "input_shape": (channels, height, width),
@@ -65,14 +67,12 @@ class VitisAiToolchain(FpgaToolchain):
             ),
             "quantization": config.get("quantization", "int8"),
             "toolchain": self.name,
+            "export_backend": "vitis_ai_pytorch",
         }
 
     def build_artifact(
         self, converted: dict[str, Any], config: PlatformConfig
     ) -> DeploymentArtifact:
-        self.require_eager_pytorch(
-            original_format=str(converted.get("original_format", "")),
-        )
         platform_id = str(config.get("platform_id", config.get("board_id", "fpga")))
         board_dir = Path(config.get("output_dir", "artifacts")) / platform_id
         workspace = board_dir / "vitis_workspace"
@@ -83,6 +83,9 @@ class VitisAiToolchain(FpgaToolchain):
         logger.info("Staged model at %s for Vitis-AI workspace", model_path)
 
         calibration_data = Path(converted["calibration_data"])
+        self.require_eager_pytorch(
+            original_format=str(converted.get("original_format", "")),
+        )
         xmodel_path, compiled_dir = export_pytorch_to_dpu(
             workspace,
             model_path,
@@ -99,6 +102,7 @@ class VitisAiToolchain(FpgaToolchain):
 
         metadata = {
             "toolchain": self.name,
+            "export_backend": converted.get("export_backend", "vitis_ai_pytorch"),
             "dpu_arch": converted["dpu_arch"],
             "dpu_target": converted["dpu_target"],
             "dpu_silicon_family": converted.get("dpu_silicon_family"),
@@ -122,9 +126,10 @@ class VitisAiToolchain(FpgaToolchain):
         config: PlatformConfig,
     ) -> Path:
         """Copy the intake model file into the workspace; Docker loads it there."""
-        model_path = workspace / "model.pt"
         source = Path(str(converted.get("source_path", config.get("source_path", ""))))
         if not source.is_file():
             raise FileNotFoundError(f"Model file not found: {source}")
-        shutil.copy2(source, model_path)
-        return model_path
+
+        staged = workspace / "model.pt"
+        shutil.copy2(source, staged)
+        return staged

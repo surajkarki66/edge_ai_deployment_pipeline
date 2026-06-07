@@ -23,7 +23,7 @@ class FpgaToolchain(ABC):
 
     def _require_pytorch(self, config: PlatformConfig) -> None:
         if config.get("framework") != FrameworkTag.PYTORCH.value:
-            raise ValueError(f"{self.name} toolchain requires a PyTorch model")
+            raise ValueError(f"{self.name} toolchain requires a PyTorch model (.pt)")
 
     def _require_input_shape(self, config: PlatformConfig) -> tuple[int, int, int]:
         input_shape = config.get("input_shape")
