@@ -27,6 +27,20 @@ class TensorRTToolchain(JetsonToolchain):
         if precision == "int8" and not config.get("calibration_data"):
             logger.warning("TensorRT INT8 requires calibration_data in platform config")
             return False
+        if precision == "int8":
+            try:
+                import tensorrt as trt
+
+                if int(trt.__version__.split(".", 1)[0]) >= 11:
+                    logger.error(
+                        "TensorRT INT8 calibration requires TensorRT 10.x "
+                        "(pip install 'tensorrt>=10.16.1.11,<11'). Found %s.",
+                        trt.__version__,
+                    )
+                    return False
+            except ImportError:
+                logger.error("TensorRT is not installed")
+                return False
         if not torch.cuda.is_available():
             logger.warning("TensorRT export requires CUDA; no GPU detected")
             return False

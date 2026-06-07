@@ -23,6 +23,130 @@ from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
+
+def _trt_major_version(trt: object) -> int:
+    return int(getattr(trt, "__version__", "0").split(".", 1)[0])
+
+
+def _set_builder_flag_if_available(config: object, trt: object, flag_name: str) -> bool:
+    flag = getattr(getattr(trt, "BuilderFlag", None), flag_name, None)
+    if flag is None:
+        return False
+    config.set_flag(flag)  # type: ignore[attr-defined]
+    return True
+
+
+def _apply_precision_config(
+    *,
+    trt: object,
+    config: object,
+    half: bool,
+    int8: bool,
+    dataset: object | None,
+    onnx_file: str,
+    dla: int | None,
+    prefix: str,
+) -> tuple[bool, bool]:
+    """Configure FP16/INT8 flags when supported; fall back to FP32 on TensorRT 11+."""
+    trt_major = _trt_major_version(trt)
+    trt_version = getattr(trt, "__version__", "unknown")
+    supports_legacy_precision = trt_major < 11
+
+    if int8 and not supports_legacy_precision:
+        logger.warning(
+            "%sTensorRT %s removed BuilderFlag.INT8 and implicit calibration. "
+            "Building an FP32 engine from the ONNX model instead. "
+            "For INT8 on TensorRT 11+, quantize the ONNX model with NVIDIA ModelOpt "
+            "before engine build, or use TensorRT 10.x.",
+            prefix,
+            trt_version,
+        )
+        int8 = False
+
+    if half and not supports_legacy_precision:
+        logger.warning(
+            "%sTensorRT %s removed BuilderFlag.FP16. "
+            "Building an FP32 engine from the ONNX model instead. "
+            "For FP16 on TensorRT 11+, run NVIDIA ModelOpt AutoCast on the ONNX model first.",
+            prefix,
+            trt_version,
+        )
+        half = False
+
+    if int8:
+        if dataset is None:
+            raise ValueError(
+                "INT8 TensorRT export requires calibration_data (image directory or .txt list)"
+            )
+        if not _set_builder_flag_if_available(config, trt, "INT8"):
+            raise RuntimeError(
+                f"TensorRT {trt_version} does not expose BuilderFlag.INT8; cannot build INT8 engine"
+            )
+        config.profiling_verbosity = trt.ProfilingVerbosity.DETAILED  # type: ignore[attr-defined]
+
+        class EngineCalibrator(trt.IInt8Calibrator):  # type: ignore[attr-defined]
+            """Custom INT8 calibrator for TensorRT engine optimization."""
+
+            def __init__(
+                self,
+                dataset: object,
+                cache: str = "",
+            ) -> None:
+                trt.IInt8Calibrator.__init__(self)  # type: ignore[attr-defined]
+                self.dataset = dataset
+                self.data_iter = iter(dataset)
+                self.batch = getattr(dataset, "batch_size", 1)
+                self.algo = (
+                    trt.CalibrationAlgoType.ENTROPY_CALIBRATION_2  # type: ignore[attr-defined]
+                    if dla is not None
+                    else trt.CalibrationAlgoType.MINMAX_CALIBRATION  # type: ignore[attr-defined]
+                )
+                self.cache = Path(cache)
+
+            def get_algorithm(self) -> object:
+                return self.algo
+
+            def get_batch_size(self) -> int:
+                return self.batch or 1
+
+            def get_batch(self, names: object) -> list[int] | None:
+                try:
+                    batch = next(self.data_iter)
+                    if isinstance(batch, dict):
+                        batch = batch["img"] / 255.0
+                    if batch.device.type == "cpu":
+                        batch = batch.to("cuda")
+                    return [int(batch.contiguous().data_ptr())]
+                except StopIteration:
+                    return None
+
+            def read_calibration_cache(self) -> bytes | None:
+                if self.cache.exists() and self.cache.suffix == ".cache":
+                    return self.cache.read_bytes()
+                return None
+
+            def write_calibration_cache(self, cache: bytes) -> None:
+                _ = self.cache.write_bytes(cache)
+
+        if hasattr(config, "int8_calibrator"):
+            config.int8_calibrator = EngineCalibrator(  # type: ignore[attr-defined]
+                dataset=dataset,
+                cache=str(Path(onnx_file).with_suffix(".cache")),
+            )
+        else:
+            raise RuntimeError(
+                f"TensorRT {trt_version} does not support int8_calibrator on IBuilderConfig"
+            )
+
+    elif half:
+        if not _set_builder_flag_if_available(config, trt, "FP16"):
+            raise RuntimeError(
+                f"TensorRT {trt_version} does not expose BuilderFlag.FP16; cannot build FP16 engine"
+            )
+
+    return half, int8
+
+
 def onnx2engine(
     onnx_file: str,
     output_file: Path | str | None = None,
@@ -77,15 +201,30 @@ def onnx2engine(
     builder = trt.Builder(log)
     config = builder.create_builder_config()
     workspace_bytes = int((workspace or 0) * (1 << 30))
-    is_trt10 = int(trt.__version__.split(".", 1)[0]) >= 10  # is TensorRT >= 10
-    if is_trt10 and workspace_bytes > 0:
+    trt_major = _trt_major_version(trt)
+    is_trt10_plus = trt_major >= 10
+    if is_trt10_plus and workspace_bytes > 0:
         config.set_memory_pool_limit(trt.MemoryPoolType.WORKSPACE, workspace_bytes)
     elif workspace_bytes > 0:  # TensorRT versions 7, 8
         config.max_workspace_size = workspace_bytes
-    flag = 1 << int(trt.NetworkDefinitionCreationFlag.EXPLICIT_BATCH)
-    network = builder.create_network(flag)
-    half = builder.platform_has_fast_fp16 and half
-    int8 = builder.platform_has_fast_int8 and int8
+    if is_trt10_plus:
+        # TensorRT 10+ always uses explicit batch; EXPLICIT_BATCH flag was removed.
+        network = builder.create_network()
+    else:
+        flag = 1 << int(trt.NetworkDefinitionCreationFlag.EXPLICIT_BATCH)
+        network = builder.create_network(flag)
+    half = getattr(builder, "platform_has_fast_fp16", True) and half
+    int8 = getattr(builder, "platform_has_fast_int8", True) and int8
+    half, int8 = _apply_precision_config(
+        trt=trt,
+        config=config,
+        half=half,
+        int8=int8,
+        dataset=dataset,
+        onnx_file=onnx_file,
+        dla=dla,
+        prefix=prefix,
+    )
 
     # Optionally switch to DLA if enabled
     if dla is not None:
@@ -130,97 +269,15 @@ def onnx2engine(
         for inp in inputs:
             profile.set_shape(inp.name, min=min_shape, opt=shape, max=max_shape)
         config.add_optimization_profile(profile)
-        if int8 and not is_trt10:  # deprecated in TensorRT 10, causes internal errors
+        if int8 and trt_major < 10:  # deprecated in TensorRT 10+, causes internal errors
             config.set_calibration_profile(profile)
 
-    logger.info(f"{prefix} building {'INT8' if int8 else 'FP' + ('16' if half else '32')} engine as {output_file}")
-    if int8:
-        if dataset is None:
-            raise ValueError(
-                "INT8 TensorRT export requires calibration_data (image directory or .txt list)"
-            )
-        config.set_flag(trt.BuilderFlag.INT8)
-        config.profiling_verbosity = trt.ProfilingVerbosity.DETAILED
-
-        class EngineCalibrator(trt.IInt8Calibrator):
-            """Custom INT8 calibrator for TensorRT engine optimization.
-
-            This calibrator provides the necessary interface for TensorRT to perform INT8 quantization calibration using
-            a dataset. It handles batch generation, caching, and calibration algorithm selection.
-
-            Attributes:
-                dataset: Dataset for calibration.
-                data_iter: Iterator over the calibration dataset.
-                algo (trt.CalibrationAlgoType): Calibration algorithm type.
-                batch (int): Batch size for calibration.
-                cache (Path): Path to save the calibration cache.
-
-            Methods:
-                get_algorithm: Get the calibration algorithm to use.
-                get_batch_size: Get the batch size to use for calibration.
-                get_batch: Get the next batch to use for calibration.
-                read_calibration_cache: Use existing cache instead of calibrating again.
-                write_calibration_cache: Write calibration cache to disk.
-            """
-
-            def __init__(
-                self,
-                dataset,
-                cache: str = "",
-            ) -> None:
-                """Initialize the INT8 calibrator with dataset and cache path."""
-                trt.IInt8Calibrator.__init__(self)
-                self.dataset = dataset
-                self.data_iter = iter(dataset)
-                self.batch = getattr(dataset, "batch_size", 1)
-                self.algo = (
-                    trt.CalibrationAlgoType.ENTROPY_CALIBRATION_2  # DLA quantization needs ENTROPY_CALIBRATION_2
-                    if dla is not None
-                    else trt.CalibrationAlgoType.MINMAX_CALIBRATION
-                )
-                self.cache = Path(cache)
-
-            def get_algorithm(self) -> trt.CalibrationAlgoType:
-                """Get the calibration algorithm to use."""
-                return self.algo
-
-            def get_batch_size(self) -> int:
-                """Get the batch size to use for calibration."""
-                return self.batch or 1
-
-            def get_batch(self, names) -> list[int] | None:
-                """Get the next batch to use for calibration, as a list of device memory pointers."""
-                try:
-                    batch = next(self.data_iter)
-                    if isinstance(batch, dict):
-                        batch = batch["img"] / 255.0
-                    if batch.device.type == "cpu":
-                        batch = batch.to("cuda")
-                    return [int(batch.contiguous().data_ptr())]
-                except StopIteration:
-                    # Return None to signal to TensorRT there is no calibration data remaining
-                    return None
-
-            def read_calibration_cache(self) -> bytes | None:
-                """Use existing cache instead of calibrating again, otherwise, implicitly return None."""
-                if self.cache.exists() and self.cache.suffix == ".cache":
-                    return self.cache.read_bytes()
-
-            def write_calibration_cache(self, cache: bytes) -> None:
-                """Write calibration cache to disk."""
-                _ = self.cache.write_bytes(cache)
-
-        # Load dataset w/ builder (for batching) and calibrate
-        config.int8_calibrator = EngineCalibrator(
-            dataset=dataset,
-            cache=str(Path(onnx_file).with_suffix(".cache")),
-        )
-
-    elif half:
-        config.set_flag(trt.BuilderFlag.FP16)
+    logger.info(
+        f"{prefix} building {'INT8' if int8 else 'FP' + ('16' if half else '32')} engine as {output_file}"
+    )
 
     # Write file
-    if is_trt10:
+    if is_trt10_plus:
         # TensorRT 10+ returns bytes directly, not a context manager
         engine = builder.build_serialized_network(network, config)
         if engine is None:
