@@ -9,3 +9,4 @@ onnxruntime>=1.26.0
 tensorrt>=10.16.1.11,<11
 tf2onnx>=1.17.0
 onnx2torch>=1.5.15
+mako>=1.3.0

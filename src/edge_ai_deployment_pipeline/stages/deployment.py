@@ -8,6 +8,7 @@ from edge_ai_deployment_pipeline.adapters.base import PlatformAdapter
 from edge_ai_deployment_pipeline.config.catalogue import PlatformCatalogue
 from edge_ai_deployment_pipeline.core.types import (
     DeploymentArtifact,
+    FrameworkTag,
     LoadedModel,
     PlatformConfig,
     SelectedPlatform,
@@ -94,6 +95,12 @@ class DeploymentStage:
             type(adapter).__name__,
         )
 
+        if adapter_id == "mcu" and loaded.framework != FrameworkTag.KERAS:
+            raise ValueError(
+                f"MCU deployment ({board_id}) requires a Keras model (.keras or .h5). "
+                f"Got {loaded.framework.value} model: {loaded.source_path}"
+            )
+
         if not adapter.validate(loaded.model, config):
             fmt = getattr(loaded, "original_format", "")
             hint = ""
@@ -114,6 +121,11 @@ class DeploymentStage:
                         )
                 except ImportError:
                     pass
+            elif adapter_id == "mcu" and loaded.framework != FrameworkTag.KERAS:
+                hint = (
+                    f" MCU (STM32N6) requires a Keras model (.keras or .h5); "
+                    f"got {loaded.framework.value}."
+                )
             raise ValueError(f"Adapter validation failed for board '{board_id}'.{hint}")
 
         converted = adapter.convert(loaded.model, config)
