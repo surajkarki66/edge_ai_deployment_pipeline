@@ -2,6 +2,7 @@
   "platforms": {
     "jetson": {
       "adapter_id": "jetson",
+      "latency_type": "medium",
       "default_toolchain": "tensorrt",
       "toolchains": {
         "tensorrt": {
@@ -38,6 +39,7 @@
     },
     "fpga": {
       "adapter_id": "fpga",
+      "latency_type": "ultra_low",
       "default_toolchain": "vitis_ai",
       "compile_flags": {},
       "toolchains": {
@@ -119,6 +121,7 @@
     },
     "mcu": {
       "adapter_id": "mcu",
+      "latency_type": "low",
       "default_toolchain": "stm32n6",
       "toolchains": {
         "stm32n6": {
@@ -192,6 +195,7 @@
     },
     "arm": {
       "adapter_id": "arm",
+      "latency_type": "moderate",
       "default_toolchain": "ncnn",
       "compile_flags": {
         "num_threads": 4

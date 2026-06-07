@@ -102,6 +102,18 @@ class DeploymentStage:
                     " Vitis-AI requires an eager PyTorch model (torch.save(nn.Module)), "
                     "not TorchScript — see toolchain error if raised during convert."
                 )
+            elif adapter_id == "jetson" and selected.toolchain == "tensorrt":
+                try:
+                    import torch
+
+                    if not torch.cuda.is_available():
+                        hint = (
+                            " TensorRT engine build requires CUDA on this machine "
+                            "(NVIDIA GPU with PyTorch CUDA). Build on a CUDA host or "
+                            "on the target Jetson device."
+                        )
+                except ImportError:
+                    pass
             raise ValueError(f"Adapter validation failed for board '{board_id}'.{hint}")
 
         converted = adapter.convert(loaded.model, config)

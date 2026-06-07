@@ -7,9 +7,11 @@ from edge_ai_deployment_pipeline.config.catalogue import DEFAULT_CATALOGUE_PATH,
 from edge_ai_deployment_pipeline.core.types import (
     CompatibilityReport,
     CompatibilityStatus,
+    ConstraintCheckResult,
     ModelProfile,
     PlatformCompatResult,
     PlatformConfig,
+    PlatformRanking,
     ScoreBreakdown,
     SelectedPlatform,
     UserRequirements,
@@ -29,13 +31,21 @@ class ConstraintCheckStage:
         profile: ModelProfile,
         compatibility: CompatibilityReport,
         requirements: UserRequirements,
-    ) -> SelectedPlatform:
+    ) -> ConstraintCheckResult:
         catalogue = PlatformCatalogue.load(self._config_path)
         candidates: list[tuple[str, str, str | None, ScoreBreakdown, str]] = []
+        rejections: list[tuple[str, str, list[str]]] = []
 
         compat_for_board = self._group_compat(compatibility)
 
         for board_id in compatibility.viable_platform_ids:
+            board_spec = catalogue.get_board(board_id)
+            display_name = str(board_spec.get("display_name", board_id))
+            reasons = self._rejection_reasons(board_spec, requirements)
+            if reasons:
+                rejections.append((board_id, display_name, reasons))
+                continue
+
             family = catalogue.platform_family(board_id)
             board_candidates = self._candidates_for_board(
                 board_id,
@@ -47,19 +57,44 @@ class ConstraintCheckStage:
             )
             if board_candidates:
                 candidates.append(max(board_candidates, key=lambda c: c[3].total_score))
+            else:
+                rejections.append(
+                    (
+                        board_id,
+                        display_name,
+                        ["no compatible toolchain available for this board"],
+                    )
+                )
 
         if not candidates:
-            raise ValueError("No viable boards remain after compatibility filtering")
+            raise ValueError(self._format_no_selection_error(requirements, rejections))
 
         candidates.sort(key=lambda c: c[3].total_score, reverse=True)
+        rankings = [
+            PlatformRanking(
+                rank=index,
+                platform_id=board_id,
+                platform_family=family,
+                toolchain=toolchain,
+                score_breakdown=breakdown,
+                reasoning=reasoning,
+                selected=False,
+            )
+            for index, (board_id, family, toolchain, breakdown, reasoning) in enumerate(
+                candidates, start=1
+            )
+        ]
         best_id, best_family, best_toolchain, best_breakdown, best_reasoning = candidates[0]
 
-        return SelectedPlatform(
-            platform_id=best_id,
-            platform_family=best_family,
-            toolchain=best_toolchain,
-            score_breakdown=best_breakdown,
-            reasoning=best_reasoning,
+        return ConstraintCheckResult(
+            selected=SelectedPlatform(
+                platform_id=best_id,
+                platform_family=best_family,
+                toolchain=best_toolchain,
+                score_breakdown=best_breakdown,
+                reasoning=best_reasoning,
+            ),
+            rankings=rankings,
         )
 
     def _group_compat(
@@ -105,6 +140,56 @@ class ConstraintCheckStage:
             scored.append((board_id, family, toolchain, breakdown, reasoning))
         return scored
 
+    @staticmethod
+    def _rejection_reasons(
+        board_spec: PlatformConfig,
+        requirements: UserRequirements,
+    ) -> list[str]:
+        reasons: list[str] = []
+        configured = board_spec.get("latency_type")
+        if configured is None:
+            board_id = board_spec.get("board_id", "<unknown>")
+            raise ValueError(f"Board '{board_id}' is missing latency_type in platform config")
+        if str(configured) != requirements.latency_type.value:
+            reasons.append(
+                f"latency_type {configured!r} does not match requested "
+                f"{requirements.latency_type.value!r}"
+            )
+
+        power_w = float(board_spec.get("tdp_watts", 0))
+        cost_usd = float(board_spec.get("cost_usd", 0))
+        if requirements.max_power_watts is not None and power_w > requirements.max_power_watts:
+            reasons.append(
+                f"power {power_w:.1f}W exceeds max budget {requirements.max_power_watts:.1f}W"
+            )
+        if requirements.max_cost_usd is not None and cost_usd > requirements.max_cost_usd:
+            reasons.append(
+                f"cost ${cost_usd:.0f} exceeds max budget ${requirements.max_cost_usd:.0f}"
+            )
+        return reasons
+
+    @staticmethod
+    def _format_no_selection_error(
+        requirements: UserRequirements,
+        rejections: list[tuple[str, str, list[str]]],
+    ) -> str:
+        lines = [
+            "No board selected for the given constraints:",
+            f"  latency_type={requirements.latency_type.value!r}",
+            f"  max_power_w={requirements.max_power_watts:.1f}W",
+            f"  max_cost_usd=${requirements.max_cost_usd:.0f}",
+        ]
+        if rejections:
+            lines.append("")
+            lines.append("Rejected boards:")
+            for board_id, display_name, reasons in rejections:
+                reason_text = "; ".join(reasons)
+                lines.append(f"  - {display_name} ({board_id}): {reason_text}")
+        else:
+            lines.append("")
+            lines.append("No compatible boards were available to evaluate.")
+        return "\n".join(lines)
+
     def _score_board(
         self,
         board_id: str,
@@ -114,9 +199,9 @@ class ConstraintCheckStage:
         spec: PlatformConfig,
         requirements: UserRequirements,
     ) -> tuple[ScoreBreakdown, str]:
-        power_w = float(spec.get("tdp_watts", 10.0))
-        cost_usd = float(spec.get("cost_usd", 100.0))
-        memory_mb = float(spec.get("memory_mb", 4096))
+        power_w = float(spec.get("tdp_watts"))
+        cost_usd = float(spec.get("cost_usd"))
+        memory_mb = float(spec.get("memory_mb"))
 
         power_score = self._threshold_score(
             power_w, requirements.max_power_watts, lower_is_better=True
@@ -142,6 +227,7 @@ class ConstraintCheckStage:
             "board_id": board_id,
             "platform_family": compat.platform_family,
             "display_name": display_name,
+            "latency_type": spec.get("latency_type"),
             "power_watts": power_w,
             "cost_usd": cost_usd,
             "memory_mb": memory_mb,
@@ -185,7 +271,7 @@ class ConstraintCheckStage:
         if lower_is_better:
             if value <= limit:
                 return 100.0 * (1.0 - value / limit * 0.3)
-            return max(0.0, 100.0 - (value - limit) / limit * 100)
+            return 0.0
         if value >= limit:
             return 100.0
         return 100.0 * value / limit

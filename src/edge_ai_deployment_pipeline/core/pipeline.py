@@ -5,6 +5,7 @@ import logging
 from enum import Enum
 from pathlib import Path
 
+from edge_ai_deployment_pipeline.core.board_selection import apply_selection, resolve_board_choice
 from edge_ai_deployment_pipeline.core.types import (
     CompatibilityReport,
     DeploymentArtifact,
@@ -41,12 +42,18 @@ class Pipeline:
         requirements: UserRequirements,
         output_dir: str | Path | None = None,
         platform_config_path: str | Path | None = None,
+        board_id: str | None = None,
+        auto_select_board: bool = False,
+        interactive: bool = True,
     ) -> None:
         self.model_path = Path(model_path)
         self.input_shape = input_shape
         self.requirements = requirements
         self.output_dir = Path(output_dir or "artifacts")
         self.platform_config_path = platform_config_path
+        self.board_id = board_id
+        self.auto_select_board = auto_select_board
+        self.interactive = interactive
 
         self._intake = IntakeStage()
         self._profiler = ProfilerStage(input_shape)
@@ -75,6 +82,7 @@ class Pipeline:
         self._run_profiler(result)
         self._run_compatibility(result)
         self._run_constraint(result)
+        self._run_board_selection(result)
         self._run_deployment(result)
         return result
 
@@ -113,12 +121,37 @@ class Pipeline:
         if result.profile is None or result.compatibility is None:
             raise ValueError("Constraint check requires ModelProfile and CompatibilityReport")
         logger.info("Stage 3: Constraint checking")
-        result.selected_platform = self._constraint.run(
+        selection = self._constraint.run(
             result.profile,
             result.compatibility,
             self.requirements,
         )
-        logger.info("Selected platform: %s", result.selected_platform.to_dict())
+        result.selected_platform = selection.selected
+        result.platform_rankings = selection.rankings
+        logger.info("Platform rankings: %d candidates", len(result.platform_rankings))
+
+    def _run_board_selection(self, result: PipelineResult) -> None:
+        if result.selected_platform is not None and result.platform_rankings is None:
+            logger.info("Using pre-selected platform: %s", result.selected_platform.platform_id)
+            return
+        if not result.platform_rankings:
+            raise ValueError("Board selection requires platform rankings from constraint check")
+
+        chosen = resolve_board_choice(
+            result.platform_rankings,
+            board_id=self.board_id,
+            auto_select=self.auto_select_board,
+            interactive=self.interactive,
+        )
+        result.selected_platform, result.platform_rankings = apply_selection(
+            result.platform_rankings,
+            chosen,
+        )
+        logger.info(
+            "User selected platform: %s (rank %d)",
+            result.selected_platform.platform_id,
+            next(r.rank for r in result.platform_rankings if r.selected),
+        )
 
     def _run_deployment(self, result: PipelineResult) -> None:
         if result.artifact is not None:

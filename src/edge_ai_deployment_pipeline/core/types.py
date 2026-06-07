@@ -19,6 +19,15 @@ class CompatibilityStatus(str, Enum):
     INCOMPATIBLE = "incompatible"
 
 
+class LatencyType(str, Enum):
+    """Target latency class for board selection."""
+
+    ULTRA_LOW = "ultra_low"
+    LOW = "low"
+    MEDIUM = "medium"
+    MODERATE = "moderate"
+
+
 @dataclass
 class LoadedModel:
     framework: FrameworkTag
@@ -92,12 +101,15 @@ class CompatibilityReport:
 
 @dataclass
 class UserRequirements:
+    latency_type: LatencyType
     max_power_watts: float = 25.0
     max_cost_usd: float = 500.0
     toolchain: str | None = None  # force a toolchain; None = auto-select best per board
 
     def to_dict(self) -> dict[str, Any]:
-        return asdict(self)
+        d = asdict(self)
+        d["latency_type"] = self.latency_type.value
+        return d
 
 
 @dataclass
@@ -134,6 +146,43 @@ class SelectedPlatform:
 
 
 @dataclass
+class PlatformRanking:
+    """One board × toolchain candidate with constraint score (sorted best-first)."""
+
+    rank: int
+    platform_id: str
+    platform_family: str
+    toolchain: str | None
+    score_breakdown: ScoreBreakdown
+    reasoning: str
+    selected: bool = False
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "rank": self.rank,
+            "platform_id": self.platform_id,
+            "board_id": self.platform_id,
+            "platform_family": self.platform_family,
+            "toolchain": self.toolchain,
+            "selected": self.selected,
+            "score_breakdown": self.score_breakdown.to_dict(),
+            "reasoning": self.reasoning,
+        }
+
+
+@dataclass
+class ConstraintCheckResult:
+    selected: SelectedPlatform
+    rankings: list[PlatformRanking]
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "selected": self.selected.to_dict(),
+            "rankings": [r.to_dict() for r in self.rankings],
+        }
+
+
+@dataclass
 class DeploymentArtifact:
     platform_id: str
     artifact_path: str
@@ -150,6 +199,7 @@ class PipelineResult:
     profile: ModelProfile | None = None
     compatibility: CompatibilityReport | None = None
     selected_platform: SelectedPlatform | None = None
+    platform_rankings: list[PlatformRanking] | None = None
     artifact: DeploymentArtifact | None = None
 
     def to_dict(self) -> dict[str, Any]:
@@ -157,11 +207,17 @@ class PipelineResult:
             "loaded_model": self.loaded_model.to_dict() if self.loaded_model else None,
             "profile": self.profile.to_dict() if self.profile else None,
             "compatibility": self.compatibility.to_dict() if self.compatibility else None,
-            "selected_platform": (
-                self.selected_platform.to_dict() if self.selected_platform else None
-            ),
+            "selected_platform": self._selected_platform_dict(),
             "artifact": self.artifact.to_dict() if self.artifact else None,
         }
+
+    def _selected_platform_dict(self) -> dict[str, Any] | None:
+        if self.selected_platform is None:
+            return None
+        payload = self.selected_platform.to_dict()
+        if self.platform_rankings:
+            payload["rankings"] = [r.to_dict() for r in self.platform_rankings]
+        return payload
 
     def to_json(self, indent: int | None = 2) -> str:
         return json.dumps(self.to_dict(), indent=indent)

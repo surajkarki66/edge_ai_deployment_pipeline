@@ -23,7 +23,7 @@ dependencies = [
     "onnx>=1.21.0",
     "onnxslim>=0.1.71",
     "onnxruntime>=1.26.0",
-    "tensorrt>=10.16.1.11",
+    "tensorrt>=10.16.1.11,<11",
 ]
 
 [project.optional-dependencies]
@@ -36,7 +36,7 @@ jetson = [
     "onnx>=1.21.0",
     "onnxslim>=0.1.71",
     "onnxruntime>=1.26.0",
-    "tensorrt>=10.16.1.11",
+    "tensorrt>=10.16.1.11,<11",
 ]
 dev = [
     "mypy>=1.8",

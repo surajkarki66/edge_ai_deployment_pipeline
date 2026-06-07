@@ -64,23 +64,33 @@ pip install -e ".[dev]"           # mypy, ruff, pre-commit
 ## Run
 
 ```bash
-edge-ai-deploy path/to/model.pt --input-shape 3,224,224 -o artifacts/
+edge-ai-deploy path/to/model.pt --input-shape 3,224,224 --latency-type ultra_low -o artifacts/
 ```
 
 `--input-shape` is **required** (`C,H,W`, e.g. `3,224,224`).
+
+`--latency-type` is **required**. Pick the latency class for your deployment target:
+
+| Value | Typical platforms |
+|-------|-------------------|
+| `ultra_low` | FPGA (`zcu104`) |
+| `low` | MCU (`stm32n6570_dk`) |
+| `medium` | NVIDIA Jetson (`jetson_nano`, `agx_orin`) |
+| `moderate` | Raspberry Pi (`raspberry_pi_4`) |
 
 Supported model formats: `.pt`, `.pth`, `.keras`, `.h5`.
 
 Or invoke the module directly:
 
 ```bash
-python -m edge_ai_deployment_pipeline.main path/to/model.pt --input-shape 3,224,224
+python -m edge_ai_deployment_pipeline.main path/to/model.pt --input-shape 3,224,224 --latency-type low
 ```
 
 ### CLI options
 
 | Flag | Default | Description |
 |------|---------|-------------|
+| `--latency-type` | — | **Required.** `ultra_low`, `low`, `medium`, or `moderate` (see table above) |
 | `-o`, `--output-dir` | `artifacts` | Directory for deployment artifacts |
 | `--platform-config` | bundled `platforms.json` | Custom platform catalogue |
 | `--max-power-w` | `25` | Max board power budget (W) |
@@ -90,13 +100,13 @@ python -m edge_ai_deployment_pipeline.main path/to/model.pt --input-shape 3,224,
 
 ## Constraint scoring
 
-For each viable board, the best toolchain is scored and the highest total wins.
+For each viable board matching `--latency-type`, the best toolchain is scored and the highest total wins.
 
 **Score weights:** power 50%, cost 50%.
 
 **Memory check:** `model_size_mb + max(peak_activation_memory_mb, inference_ram_mb)` must fit in the board's `memory_mb`. If not, a **−50** penalty is applied.
 
-Boards over `--max-power-w` or `--max-cost-usd` receive lower power/cost sub-scores but are not excluded outright.
+Boards whose `tdp_watts` or `cost_usd` exceed `--max-power-w` or `--max-cost-usd` are **excluded**. The pipeline exits with an error listing each rejected board and why.
 
 ## Compatibility
 
@@ -114,12 +124,12 @@ Partial boards remain viable but are noted in constraint reasoning.
 
 Configured in bundled `config/platforms.json`:
 
-| Family | Board | Toolchain |
-|--------|-------|-----------|
-| Jetson | `jetson_nano`, `agx_orin` | TensorRT |
-| FPGA | `zcu104` | Vitis AI |
-| MCU | `stm32n6570_dk` | STM32N6 |
-| ARM | `raspberry_pi_4` | ncnn |
+| Family | Board | Toolchain | Latency type |
+|--------|-------|-----------|--------------|
+| Jetson | `jetson_nano`, `agx_orin` | TensorRT | `medium` |
+| FPGA | `zcu104` | Vitis AI | `ultra_low` |
+| MCU | `stm32n6570_dk` | STM32N6 | `low` |
+| ARM | `raspberry_pi_4` | ncnn | `moderate` |
 
 Override with `--platform-config path/to/platforms.json`. Each board must declare `available_toolchains`.
 
