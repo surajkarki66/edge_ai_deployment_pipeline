@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from edge_ai_deployment_pipeline.adapters.arm.toolchains.base import ArmToolchain
+from edge_ai_deployment_pipeline.adapters.arm.toolchains.keras_to_pytorch import keras_to_pytorch_module
 from edge_ai_deployment_pipeline.adapters.arm.toolchains.ncnn_export import torch2ncnn
 from edge_ai_deployment_pipeline.core.types import DeploymentArtifact, FrameworkTag, PlatformConfig
 
@@ -16,24 +17,52 @@ class NcnnToolchain(ArmToolchain):
     name = "ncnn"
 
     def validate(self, model: Any, config: PlatformConfig) -> bool:
-        if config.get("framework") != FrameworkTag.PYTORCH.value:
-            return False
-        return self.is_pytorch_model(model)
+        framework = config.get("framework")
+        if framework == FrameworkTag.PYTORCH.value:
+            return self.is_pytorch_model(model)
+        if framework == FrameworkTag.KERAS.value:
+            return self.is_keras_format(config) and self.is_keras_model(model)
+        return False
 
     def convert(self, model: Any, config: PlatformConfig) -> dict[str, Any]:
-        import torch
-
-        self._require_pytorch(config)
         channels, height, width = self._require_input_shape(config)
-        resolved = self.resolve_pytorch_model(model)
-        example_input = torch.randn(1, channels, height, width)
         fp16 = self.resolve_fp16(config)
+        framework = config.get("framework")
+        channels_last = bool(config.get("channels_last", True))
+        export_backend = "pytorch"
+        onnx_path: str | None = None
+
+        if framework == FrameworkTag.PYTORCH.value:
+            resolved = self.resolve_pytorch_model(model)
+            example_input = self.example_input_tensor(
+                channels, height, width, channels_last=False
+            )
+        elif framework == FrameworkTag.KERAS.value:
+            self._require_keras(config)
+            resolved, onnx_file = keras_to_pytorch_module(
+                model,
+                config,
+                channels=channels,
+                height=height,
+                width=width,
+            )
+            export_backend = "keras_onnx2torch"
+            onnx_path = str(onnx_file)
+            example_input = self.example_input_tensor(
+                channels, height, width, channels_last=channels_last
+            )
+        else:
+            raise ValueError(
+                f"{self.name} toolchain requires a PyTorch or Keras model, got {framework!r}"
+            )
 
         return {
             "model": resolved,
             "example_input": example_input,
             "half": fp16,
             "toolchain": self.name,
+            "export_backend": export_backend,
+            "onnx_path": onnx_path,
         }
 
     def build_artifact(
@@ -65,7 +94,10 @@ class NcnnToolchain(ArmToolchain):
             "compile_flags": config.get("compile_flags", {}),
             "bin_path": str(bin_path.resolve()),
             "ncnn_py": str((board_dir / "model_ncnn.py").resolve()),
+            "export_backend": converted.get("export_backend", "pytorch"),
         }
+        if converted.get("onnx_path"):
+            metadata["onnx_path"] = converted["onnx_path"]
 
         return DeploymentArtifact(
             platform_id=platform_id,

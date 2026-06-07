@@ -24,6 +24,10 @@ class ArmToolchain(ABC):
         if config.get("framework") != FrameworkTag.PYTORCH.value:
             raise ValueError(f"{self.name} toolchain requires a PyTorch model")
 
+    def _require_keras(self, config: PlatformConfig) -> None:
+        if config.get("framework") != FrameworkTag.KERAS.value:
+            raise ValueError(f"{self.name} Keras export path requires a Keras model")
+
     @staticmethod
     def resolve_fp16(config: PlatformConfig) -> bool:
         """NCNN/PNNX fp16 export flag (boolean, not a precision string)."""
@@ -41,6 +45,32 @@ class ArmToolchain(ABC):
             )
         channels, height, width = (int(d) for d in input_shape)
         return channels, height, width
+
+    @staticmethod
+    def is_keras_model(model: Any) -> bool:
+        try:
+            import tensorflow as tf
+        except ImportError:
+            return False
+        return isinstance(model, tf.keras.Model)
+
+    @staticmethod
+    def is_keras_format(config: PlatformConfig) -> bool:
+        return str(config.get("original_format", "")) in ("keras", "h5")
+
+    @staticmethod
+    def example_input_tensor(
+        channels: int,
+        height: int,
+        width: int,
+        *,
+        channels_last: bool,
+    ) -> Any:
+        import torch
+
+        if channels_last:
+            return torch.randn(1, height, width, channels)
+        return torch.randn(1, channels, height, width)
 
     @staticmethod
     def resolve_pytorch_model(model: Any) -> Any:
