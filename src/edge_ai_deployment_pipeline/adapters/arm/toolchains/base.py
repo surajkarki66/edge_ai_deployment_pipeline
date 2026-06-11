@@ -78,10 +78,8 @@ class ArmToolchain(ABC):
 
         if isinstance(model, nn.Module):
             return model.eval()
-        if hasattr(model, "forward"):
-            return model.eval()
         raise TypeError(
-            f"ARM export requires a PyTorch nn.Module or TorchScript model, got {type(model).__name__}"
+            f"ARM export requires torch.nn.Module, got {type(model).__name__}"
         )
 
     @staticmethod

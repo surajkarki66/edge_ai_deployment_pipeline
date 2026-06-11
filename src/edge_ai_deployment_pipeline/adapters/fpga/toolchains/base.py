@@ -48,37 +48,10 @@ class FpgaToolchain(ABC):
     @staticmethod
     def is_pytorch_model(model: Any) -> bool:
         try:
-            import torch
             import torch.nn as nn
         except ImportError:
             return False
-        if isinstance(model, torch.jit.ScriptModule):
-            return False
-        return isinstance(model, nn.Module) or hasattr(model, "forward")
-
-    @staticmethod
-    def require_eager_pytorch(
-        *,
-        original_format: str = "",
-        model: Any | None = None,
-    ) -> None:
-        """Vitis-AI NNDCT quantizer does not support TorchScript/traced models."""
-        import torch
-
-        if original_format == "torchscript":
-            raise ValueError(
-                "Vitis-AI requires an eager PyTorch model (nn.Module), not TorchScript. "
-                "Your file was loaded as torchscript. Re-save a full model, e.g.\n"
-                "  import torchvision.models as models\n"
-                "  m = models.resnet18(weights=models.ResNet18_Weights.DEFAULT)\n"
-                "  torch.save(m, 'resnet18_eager.pt')\n"
-                "Then run the pipeline with resnet18_eager.pt."
-            )
-        if model is not None and isinstance(model, torch.jit.ScriptModule):
-            raise ValueError(
-                "Vitis-AI requires an eager PyTorch nn.Module; got TorchScript. "
-                "Use torch.save(model, path) on a regular Module, not torch.jit.save/trace."
-            )
+        return isinstance(model, nn.Module)
 
     @staticmethod
     def resolve_pytorch_model(model: Any) -> Any:
@@ -86,8 +59,6 @@ class FpgaToolchain(ABC):
 
         if isinstance(model, nn.Module):
             return model.eval()
-        if hasattr(model, "forward"):
-            return model.eval()
         raise TypeError(
-            f"Vitis-AI export requires nn.Module or TorchScript, got {type(model).__name__}"
+            f"Vitis-AI export requires torch.nn.Module, got {type(model).__name__}"
         )

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import logging
 import shutil
 
@@ -12,11 +13,18 @@ from edge_ai_deployment_pipeline.adapters.fpga.toolchains.vitis_ai_docker import
     export_pytorch_to_dpu,
     resolve_dpu_target,
 )
+from edge_ai_deployment_pipeline.core.pytorch_loader import (
+    resolve_model_definition_file,
+    split_model_class_spec,
+)
 from edge_ai_deployment_pipeline.core.types import DeploymentArtifact, FrameworkTag, PlatformConfig
 
 logger = logging.getLogger(__name__)
 
 DPU_ARCH = "DPUCZDX8G"
+WORKSPACE_MODEL_CLASS = "models/model_arch.py"
+WORKSPACE_WEIGHTS = "model.pt"
+WORKSPACE_META = "model_meta.json"
 
 
 class VitisAiToolchain(FpgaToolchain):
@@ -32,13 +40,7 @@ class VitisAiToolchain(FpgaToolchain):
             return False
         if config.get("framework") != FrameworkTag.PYTORCH.value:
             return False
-        if not self.is_pytorch_model(model):
-            return False
-        fmt = str(config.get("original_format", ""))
-        if fmt == "torchscript":
-            logger.warning("Vitis-AI does not support TorchScript models")
-            return False
-        return True
+        return self.is_pytorch_model(model)
 
     def convert(self, model: Any, config: PlatformConfig) -> dict[str, Any]:
         channels, height, width = self._require_input_shape(config)
@@ -47,17 +49,19 @@ class VitisAiToolchain(FpgaToolchain):
         source_path = config.get("source_path")
         if not source_path:
             raise ValueError("source_path is required for Vitis-AI export")
+        architecture_spec = config.get("architecture_spec")
+        if not architecture_spec:
+            raise ValueError("FPGA export requires --model-class")
 
         self._require_pytorch(config)
-        self.require_eager_pytorch(
-            original_format=str(config.get("original_format", "")),
-            model=model,
-        )
+        resolved = self.resolve_pytorch_model(model)
 
         return {
             "framework": FrameworkTag.PYTORCH.value,
             "source_path": str(source_path),
             "original_format": str(config.get("original_format", "")),
+            "architecture_spec": str(architecture_spec),
+            "model_kwargs": config.get("model_kwargs") or {},
             "input_shape": (channels, height, width),
             "calibration_data": str(calibration_data),
             "dpu_target": dpu_target,
@@ -68,6 +72,7 @@ class VitisAiToolchain(FpgaToolchain):
             "quantization": config.get("quantization", "int8"),
             "toolchain": self.name,
             "export_backend": "vitis_ai_pytorch",
+            "model": resolved,
         }
 
     def build_artifact(
@@ -75,20 +80,17 @@ class VitisAiToolchain(FpgaToolchain):
     ) -> DeploymentArtifact:
         platform_id = str(config.get("platform_id", config.get("board_id", "fpga")))
         board_dir = Path(config.get("output_dir", "artifacts")) / platform_id
-        workspace = board_dir / "vitis_workspace"
+        workspace = (board_dir / "vitis_workspace").resolve()
         workspace.mkdir(parents=True, exist_ok=True)
 
         channels, height, width = converted["input_shape"]
-        model_path = self._stage_model_in_workspace(workspace, converted, config)
-        logger.info("Staged model at %s for Vitis-AI workspace", model_path)
+        self._stage_model_in_workspace(workspace, converted)
+        logger.info("Staged weights and model definition under %s", workspace)
 
         calibration_data = Path(converted["calibration_data"])
-        self.require_eager_pytorch(
-            original_format=str(converted.get("original_format", "")),
-        )
         xmodel_path, compiled_dir = export_pytorch_to_dpu(
-            workspace,
-            model_path,
+            workspace.resolve(),
+            Path(WORKSPACE_WEIGHTS),
             calibration_data,
             channels=channels,
             height=height,
@@ -123,13 +125,26 @@ class VitisAiToolchain(FpgaToolchain):
         self,
         workspace: Path,
         converted: dict[str, Any],
-        config: PlatformConfig,
-    ) -> Path:
-        """Copy the intake model file into the workspace; Docker loads it there."""
-        source = Path(str(converted.get("source_path", config.get("source_path", ""))))
+    ) -> None:
+        """Copy weights + architecture ``.py`` for Vitis-AI Docker (state_dict loading)."""
+        source = Path(str(converted.get("source_path", "")))
         if not source.is_file():
-            raise FileNotFoundError(f"Model file not found: {source}")
+            raise FileNotFoundError(f"Weights file not found: {source}")
 
-        staged = workspace / "model.pt"
-        shutil.copy2(source, staged)
-        return staged
+        architecture_spec = str(converted.get("architecture_spec", ""))
+        if not architecture_spec:
+            raise ValueError("FPGA export requires architecture_spec from --model-class")
+
+        _, class_name = split_model_class_spec(architecture_spec)
+        definition_file = resolve_model_definition_file(architecture_spec)
+
+        models_dir = workspace / "models"
+        models_dir.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(definition_file, models_dir / "model_arch.py")
+        shutil.copy2(source, workspace / WORKSPACE_WEIGHTS)
+
+        meta = {
+            "model_class": f"{WORKSPACE_MODEL_CLASS}:{class_name}",
+            "model_kwargs": converted.get("model_kwargs") or {},
+        }
+        (workspace / WORKSPACE_META).write_text(json.dumps(meta) + "\n")

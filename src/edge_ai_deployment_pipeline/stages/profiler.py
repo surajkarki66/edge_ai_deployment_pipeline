@@ -63,13 +63,9 @@ class ProfilerStage:
 
         if isinstance(handle, nn.Module):
             return handle.eval()
-        if isinstance(handle, dict):
-            raise ValueError(
-                "Checkpoint files are not supported; provide a full model or TorchScript export"
-            )
-        if hasattr(handle, "forward"):
-            return handle.eval()
-        raise TypeError("Cannot profile PyTorch handle — expected nn.Module or TorchScript")
+        raise TypeError(
+            f"Cannot profile PyTorch model — expected nn.Module, got {type(handle).__name__}"
+        )
 
     def _pytorch_layer_inventory(self, model: Any) -> dict[str, int]:
         inventory: dict[str, int] = {}

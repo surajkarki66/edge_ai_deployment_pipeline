@@ -25,7 +25,17 @@ if torch.cuda.is_available():
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 parser = argparse.ArgumentParser()
-parser.add_argument("--model_path", default="model.pt", help="PyTorch model file (.pt).")
+parser.add_argument("--model_path", default="model.pt", help="PyTorch weights file (state_dict).")
+parser.add_argument(
+    "--model_class",
+    default=None,
+    help="Network definition inside the workspace, e.g. models/model_arch.py:Net",
+)
+parser.add_argument(
+    "--model_kwargs",
+    default="{}",
+    help="JSON object passed to the model constructor",
+)
 parser.add_argument("--config_file", default=None, help="Quantization config file.")
 parser.add_argument("--subset_len", default=None, type=int, help="Calibration subset length.")
 parser.add_argument("--batch_size", default=32, type=int, help="Calibration batch size.")
@@ -103,16 +113,60 @@ class LoadImages:
         return math.ceil(self.nf / self.bs)
 
 
-def load_model(model_path: str) -> torch.nn.Module:
-    import torch.nn as nn
+def _import_model_class(spec: str) -> type:
+    import importlib.util
+    import sys
 
-    obj = torch.load(model_path, map_location="cpu", weights_only=False)
-    if isinstance(obj, dict) and "model" in obj:
-        model = obj["model"]
-    elif isinstance(obj, nn.Module):
-        model = obj
-    else:
-        raise TypeError(f"Unsupported checkpoint at {model_path}: {type(obj).__name__}")
+    if ":" not in spec:
+        raise ValueError(f"Invalid --model_class {spec!r}")
+    module_part, class_name = spec.rsplit(":", 1)
+    path = Path(module_part)
+    if not path.is_file():
+        raise FileNotFoundError(f"Model definition not found: {path}")
+
+    module_name = "vitis_model_arch"
+    spec_obj = importlib.util.spec_from_file_location(module_name, path)
+    if spec_obj is None or spec_obj.loader is None:
+        raise ImportError(f"Cannot import model class from {path}")
+    module = importlib.util.module_from_spec(spec_obj)
+    sys.modules[module_name] = module
+    spec_obj.loader.exec_module(module)
+    model_cls = getattr(module, class_name)
+    return model_cls
+
+
+def _extract_state_dict(obj) -> dict:
+    if isinstance(obj, dict):
+        for key in ("state_dict", "model_state_dict"):
+            if key in obj and isinstance(obj[key], dict):
+                return obj[key]
+        if obj and all(isinstance(v, torch.Tensor) for v in obj.values()):
+            return obj
+        raise TypeError(f"Unsupported checkpoint dict at {args.model_path}")
+    raise TypeError(f"Expected state_dict checkpoint, got {type(obj).__name__}")
+
+
+def load_model(model_path: str) -> torch.nn.Module:
+    import json
+
+    if not args.model_class:
+        raise ValueError("--model_class is required (e.g. models/model_arch.py:Net)")
+
+    model_cls = _import_model_class(args.model_class)
+    kwargs = json.loads(args.model_kwargs or "{}")
+    if not isinstance(kwargs, dict):
+        raise ValueError("--model_kwargs must be a JSON object")
+
+    model = model_cls(**kwargs)
+    checkpoint = torch.load(model_path, map_location="cpu", weights_only=False)
+    state_dict = _extract_state_dict(checkpoint)
+    if any(key.startswith("module.") for key in state_dict):
+        state_dict = {
+            key[len("module.") :]: value
+            for key, value in state_dict.items()
+            if key.startswith("module.")
+        }
+    model.load_state_dict(state_dict)
     model.float()
     model.eval()
     return model

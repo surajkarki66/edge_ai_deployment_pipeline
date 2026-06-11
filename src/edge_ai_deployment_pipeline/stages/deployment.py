@@ -108,13 +108,7 @@ class DeploymentStage:
 
         if not adapter.validate(loaded.model, config):
             hint = ""
-            if adapter_id == "fpga" and loaded.framework == FrameworkTag.PYTORCH:
-                if getattr(loaded, "original_format", "") == "torchscript":
-                    hint = (
-                        " Vitis-AI requires an eager PyTorch model (torch.save(nn.Module)), "
-                        "not TorchScript."
-                    )
-            elif adapter_id == "fpga" and loaded.framework != FrameworkTag.PYTORCH:
+            if adapter_id == "fpga" and loaded.framework != FrameworkTag.PYTORCH:
                 hint = " Vitis-AI FPGA deployment supports PyTorch (.pt) models only."
             elif adapter_id == "jetson" and selected.toolchain == "tensorrt":
                 try:
@@ -164,6 +158,10 @@ class DeploymentStage:
             spec["framework"] = loaded.framework.value
             spec["source_path"] = loaded.source_path
             spec["original_format"] = loaded.original_format
+            if loaded.architecture_spec:
+                spec["architecture_spec"] = loaded.architecture_spec
+            if loaded.model_kwargs:
+                spec["model_kwargs"] = loaded.model_kwargs
         if spec.get("calibration_data"):
             spec["calibration_data"] = str(
                 _resolve_config_path(str(spec["calibration_data"]), config_path)

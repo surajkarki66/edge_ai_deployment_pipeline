@@ -4,6 +4,7 @@ import logging
 
 from enum import Enum
 from pathlib import Path
+from typing import Any
 
 from edge_ai_deployment_pipeline.core.board_selection import apply_selection, resolve_board_choice
 from edge_ai_deployment_pipeline.core.types import (
@@ -45,6 +46,8 @@ class Pipeline:
         board_id: str | None = None,
         auto_select_board: bool = False,
         interactive: bool = True,
+        model_class: str | None = None,
+        model_kwargs: dict[str, Any] | None = None,
     ) -> None:
         self.model_path = Path(model_path)
         self.input_shape = input_shape
@@ -54,6 +57,8 @@ class Pipeline:
         self.board_id = board_id
         self.auto_select_board = auto_select_board
         self.interactive = interactive
+        self.model_class = model_class
+        self.model_kwargs = model_kwargs
 
         self._intake = IntakeStage()
         self._profiler = ProfilerStage(input_shape)
@@ -91,7 +96,11 @@ class Pipeline:
             logger.info("Skipping intake — LoadedModel already provided")
             return
         logger.info("Stage 1a: Model intake — %s", self.model_path)
-        result.loaded_model = self._intake.run(self.model_path)
+        result.loaded_model = self._intake.run(
+            self.model_path,
+            model_class=self.model_class,
+            model_kwargs=self.model_kwargs,
+        )
         logger.info("Loaded model: %s", result.loaded_model.to_dict())
 
     def _run_profiler(self, result: PipelineResult) -> None:

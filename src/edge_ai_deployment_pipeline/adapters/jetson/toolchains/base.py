@@ -94,7 +94,7 @@ class JetsonToolchain(ABC):
             import torch.nn as nn
         except ImportError:
             return False
-        return isinstance(model, nn.Module) or hasattr(model, "forward")
+        return isinstance(model, nn.Module)
 
     @staticmethod
     def resolve_pytorch_model(model: Any) -> Any:
@@ -102,8 +102,6 @@ class JetsonToolchain(ABC):
 
         if isinstance(model, nn.Module):
             return model.eval()
-        if hasattr(model, "forward"):
-            return model.eval()
         raise TypeError(
-            f"Jetson export requires a PyTorch nn.Module or TorchScript model, got {type(model).__name__}"
+            f"Jetson export requires torch.nn.Module, got {type(model).__name__}"
         )

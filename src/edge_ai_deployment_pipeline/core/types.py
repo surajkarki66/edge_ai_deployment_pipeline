@@ -34,14 +34,21 @@ class LoadedModel:
     source_path: str
     model: Any
     original_format: str
+    architecture_spec: str | None = None
+    model_kwargs: dict[str, Any] | None = None
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        payload: dict[str, Any] = {
             "framework": self.framework.value,
             "source_path": self.source_path,
             "original_format": self.original_format,
             "model": "<opaque>",
         }
+        if self.architecture_spec:
+            payload["architecture_spec"] = self.architecture_spec
+        if self.model_kwargs:
+            payload["model_kwargs"] = self.model_kwargs
+        return payload
 
 
 @dataclass

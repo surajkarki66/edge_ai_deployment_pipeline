@@ -8,6 +8,7 @@ from pathlib import Path
 
 from edge_ai_deployment_pipeline.core.logging_config import setup_logging
 from edge_ai_deployment_pipeline.core.pipeline import Pipeline
+from edge_ai_deployment_pipeline.core.pytorch_loader import parse_model_kwargs
 from edge_ai_deployment_pipeline.core.types import LatencyType, UserRequirements
 
 logger = logging.getLogger(__name__)
@@ -33,7 +34,7 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "model",
         type=Path,
-        help="Path to trained vision model (.pt, .pth, .keras, .h5)",
+        help="Weights (.pt/.pth state_dict) or Keras model (.keras, .h5)",
     )
     parser.add_argument(
         "--input-shape",
@@ -92,6 +93,24 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="Deploy to the highest-ranked board without prompting",
     )
     parser.add_argument(
+        "--model-class",
+        type=str,
+        default=None,
+        required=False,
+        metavar="MODULE:CLASS",
+        help=(
+            "Required for .pt/.pth weights: network definition "
+            "(e.g. data/models/cifar_net.py:Net)"
+        ),
+    )
+    parser.add_argument(
+        "--model-kwargs",
+        type=str,
+        default=None,
+        metavar="JSON",
+        help='Optional JSON kwargs for the model constructor (e.g. \'{"num_classes": 10}\')',
+    )
+    parser.add_argument(
         "-v",
         "--verbose",
         action="store_true",
@@ -107,6 +126,13 @@ def main(argv: list[str] | None = None) -> int:
 
     if not args.model.is_file():
         logger.error("Model file not found: %s", args.model)
+        return 1
+
+    if args.model.suffix.lower() in {".pt", ".pth"} and not args.model_class:
+        logger.error(
+            "PyTorch weights (%s) require --model-class (e.g. data/models/cifar_net.py:Net)",
+            args.model,
+        )
         return 1
 
     requirements = UserRequirements(
@@ -125,6 +151,8 @@ def main(argv: list[str] | None = None) -> int:
             platform_config_path=args.platform_config,
             board_id=args.board_id,
             auto_select_board=args.auto_select,
+            model_class=args.model_class,
+            model_kwargs=parse_model_kwargs(args.model_kwargs),
         ).run()
     except ValueError as exc:
         logger.error("%s", exc)

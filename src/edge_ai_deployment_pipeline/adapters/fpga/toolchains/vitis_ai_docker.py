@@ -178,8 +178,27 @@ def _prepare_pytorch_workspace(
     shutil.copy2(arch_path, arch_dst / arch_path.name)
     stage_calibration_images(workspace, calibration_data)
 
-    if not model_path.is_file():
-        raise FileNotFoundError(f"Model not found: {model_path}")
+    workspace = workspace.resolve()
+    weights = model_path if model_path.is_absolute() else workspace / model_path.name
+    if not weights.is_file():
+        raise FileNotFoundError(f"Model weights not found: {weights}")
+
+
+def _docker_model_args(workspace: Path) -> str:
+    meta_path = workspace / "model_meta.json"
+    if not meta_path.is_file():
+        raise FileNotFoundError(
+            f"Missing {meta_path.name} in Vitis workspace; expected staged weights + model class"
+        )
+    import json
+
+    meta = json.loads(meta_path.read_text())
+    model_class = str(meta["model_class"])
+    model_kwargs = json.dumps(meta.get("model_kwargs") or {})
+    return (
+        f"--model_class {shlex.quote(model_class)} "
+        f"--model_kwargs {shlex.quote(model_kwargs)}"
+    )
 
 
 def quantize_pytorch(
@@ -199,6 +218,7 @@ def quantize_pytorch(
     """Two-step PTQ: calib then test+deploy. Returns path to quantize_result directory."""
     script = "python scripts/vai_q_pytorch.py"
     model_arg = f"--model_path {shlex.quote(model_filename)}"
+    arch_arg = _docker_model_args(workspace)
     size_args = (
         f"--channels {channels} --img_height {img_height} --img_width {img_width}"
     )
@@ -207,7 +227,7 @@ def quantize_pytorch(
     cfg = f"--config_file {shlex.quote(config_file)}" if config_file else ""
 
     calib_cmd = (
-        f"{script} {model_arg} --batch_size {batch_size_calib} {size_args} "
+        f"{script} {model_arg} {arch_arg} --batch_size {batch_size_calib} {size_args} "
         f"{target_arg} --quant_mode calib --inspect {calib_list} {cfg}"
     ).strip()
     run_in_vitis_container(
@@ -221,7 +241,7 @@ def quantize_pytorch(
         time.sleep(pause_seconds)
 
     deploy_cmd = (
-        f"{script} {model_arg} --batch_size 1 {size_args} "
+        f"{script} {model_arg} {arch_arg} --batch_size 1 {size_args} "
         f"{target_arg} --quant_mode test --deploy {calib_list} {cfg}"
     ).strip()
     run_in_vitis_container(
@@ -288,6 +308,7 @@ def export_pytorch_to_dpu(
     config: dict[str, Any],
 ) -> tuple[Path, Path]:
     """Full flow: quantize → xmodel → vai_c_xir compile."""
+    workspace = workspace.resolve()
     if not _docker_available():
         raise RuntimeError(
             "Docker is required for Vitis-AI export (install Docker and pull Vitis-AI image)."

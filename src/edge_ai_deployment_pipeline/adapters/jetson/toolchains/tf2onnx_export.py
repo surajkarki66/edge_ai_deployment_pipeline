@@ -31,6 +31,40 @@ def keras_input_signature(
     return [tf.TensorSpec(shape, tf.float32, name=name)]
 
 
+def _keras_inference_output_name(model: Any) -> str:
+    names = getattr(model, "output_names", None)
+    if names:
+        return str(names[0])
+    layers = getattr(model, "layers", None)
+    if layers:
+        return str(layers[-1].name)
+    return "output"
+
+
+def _export_keras_via_function(
+    model: Any,
+    input_signature: list[Any],
+    *,
+    opset: int,
+) -> Any:
+    """Keras 3 workaround: wrap inference in ``@tf.function`` for tf2onnx."""
+    import tensorflow as tf
+    import tf2onnx
+
+    output_name = _keras_inference_output_name(model)
+
+    @tf.function(input_signature=input_signature)
+    def inference_fn(input_data: Any) -> dict[str, Any]:
+        return {output_name: model(input_data, training=False)}
+
+    onnx_model, _ = tf2onnx.convert.from_function(
+        inference_fn,
+        input_signature=input_signature,
+        opset=opset,
+    )
+    return onnx_model
+
+
 def export_keras_to_onnx(
     model: Any,
     output_path: Path | str,
@@ -42,7 +76,7 @@ def export_keras_to_onnx(
     opset: int = DEFAULT_OPSET,
     channels_last: bool = True,
 ) -> Path:
-    """Export a ``tf.keras.Model`` to ONNX via ``tf2onnx.convert.from_keras``."""
+    """Export a ``tf.keras.Model`` to ONNX via tf2onnx."""
     import tf2onnx
 
     _require_image_input_shape(model, channels=channels, height=height, width=width)
@@ -62,11 +96,25 @@ def export_keras_to_onnx(
         opset,
         input_signature[0].shape,
     )
-    onnx_model, _ = tf2onnx.convert.from_keras(
-        model,
-        input_signature,
-        opset=opset,
-    )
+
+    onnx_model: Any
+    try:
+        onnx_model, _ = tf2onnx.convert.from_keras(
+            model,
+            input_signature,
+            opset=opset,
+        )
+    except (KeyError, AttributeError, TypeError) as exc:
+        logger.warning(
+            "tf2onnx.from_keras failed (%s); retrying with tf.function wrapper (Keras 3)",
+            exc,
+        )
+        onnx_model = _export_keras_via_function(
+            model,
+            input_signature,
+            opset=opset,
+        )
+
     output_path.write_bytes(onnx_model.SerializeToString())
     logger.info("Wrote ONNX model to %s", output_path.resolve())
     return output_path.resolve()
