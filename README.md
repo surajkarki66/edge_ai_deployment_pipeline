@@ -10,16 +10,14 @@ Requires **Python 3.11+**.
 
 End-to-end flow (all stages run in order):
 
-
-| Stage               | Purpose                                                                    |
-| ------------------- | -------------------------------------------------------------------------- |
-| **Intake**          | Load model from disk (PyTorch or Keras)                                    |
-| **Profiler**        | FLOPs, parameter count, memory estimates, layer inventory, CPU latency     |
-| **Compatibility**   | Match layer types against each board's toolchain allowlist/denylist        |
-| **Constraint**      | Score viable boards on power, cost, and memory; rank candidates            |
+| Stage | Purpose |
+|-------|---------|
+| **Intake** | Load Keras (`.keras`/`.h5`) or PyTorch **weights** (`.pt`/`.pth`) + `--model-class` |
+| **Profiler** | FLOPs, parameter count, memory estimates, layer inventory, CPU latency |
+| **Compatibility** | Match layer types against each board's toolchain allowlist/denylist |
+| **Constraint** | Score viable boards on power, cost, and memory; rank candidates |
 | **Board selection** | Pick a ranked board (interactive prompt, `--board-id`, or `--auto-select`) |
-| **Deployment**      | Emit a deployable artifact for the selected target                         |
-
+| **Deployment** | Emit a deployable artifact for the selected target |
 
 On success the CLI prints a **JSON summary** to stdout (including `rankings` and the selected board) and writes deployment artifacts under `-o` (default `artifacts/`).
 
@@ -29,31 +27,87 @@ Profiling, compatibility, and constraint checking run on CPU. **Deployment** may
 
 Configured in bundled `src/edge_ai_deployment_pipeline/config/platforms.json`:
 
-
-| Family | Board                     | Toolchain | Latency type |
-| ------ | ------------------------- | --------- | ------------ |
-| Jetson | `jetson_nano`, `agx_orin` | TensorRT  | `medium`     |
-| FPGA   | `zcu104`                  | Vitis AI  | `ultra_low`  |
-| MCU    | `stm32n6570_dk`           | STM32N6   | `low`        |
-| ARM    | `raspberry_pi_4`          | ncnn      | `moderate`   |
-
+| Family | Board | Toolchain | Latency type |
+|--------|-------|-----------|--------------|
+| Jetson | `jetson_nano`, `agx_orin` | TensorRT | `medium` |
+| FPGA | `zcu104` | Vitis AI | `ultra_low` |
+| MCU | `stm32n6570_dk` | STM32N6 | `low` |
+| ARM | `raspberry_pi_4` | ncnn | `moderate` |
 
 Override with `--platform-config path/to/platforms.json`. Each board must declare `available_toolchains`.
 
 ## Model formats
 
-**Intake** accepts `.pt`, `.pth`, `.keras`, and `.h5`. **Deployment** enforces per-platform framework rules (checked at deploy time, not during compatibility):
+### PyTorch (all platforms that accept PyTorch)
+
+PyTorch intake is **weights + architecture only**:
+
+1. Define `nn.Module` in an importable `.py` file.
+2. Save **weights only**: `torch.save(model.state_dict(), "weights.pt")`.
+3. Pass `--model-class file.py:ClassName` to the CLI.
+
+Do **not** use `torch.save(model, path)` (full-model pickle). It is not supported.
+
+`--model-class` formats:
+
+- `data/models/cifar_net.py:Net` — path to a `.py` file
+- `mypackage.models:Net` — importable Python module
+
+Optional constructor args: `--model-kwargs '{"num_classes": 10}'`.
+
+**Example network** (`data/models/cifar_net.py`):
+
+```python
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
 
 
-| Target                     | Model format              | Notes                                                             |
-| -------------------------- | ------------------------- | ----------------------------------------------------------------- |
-| **FPGA** (`zcu104`)        | PyTorch `.pt` / `.pth`    | Eager `nn.Module` only                                            |
-| **MCU** (`stm32n6570_dk`)  | Keras `.keras` / `.h5`    | Full saved model (architecture + weights), not weights-only `.h5` |
-| **Jetson**                 | `.pt` or `.keras` / `.h5` | Keras path uses tf2onnx → ONNX → TensorRT                         |
-| **ARM** (`raspberry_pi_4`) | `.pt` or `.keras` / `.h5` | Keras path uses tf2onnx → onnx2torch → ncnn                       |
+class Net(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.conv1 = nn.Conv2d(3, 6, 5)
+        self.pool = nn.MaxPool2d(2, 2)
+        self.conv2 = nn.Conv2d(6, 16, 5)
+        self.fc1 = nn.Linear(16 * 5 * 5, 120)
+        self.fc2 = nn.Linear(120, 84)
+        self.fc3 = nn.Linear(84, 10)
 
+    def forward(self, x):
+        x = self.pool(F.relu(self.conv1(x)))
+        x = self.pool(F.relu(self.conv2(x)))
+        x = torch.flatten(x, 1)
+        x = F.relu(self.fc1(x))
+        x = F.relu(self.fc2(x))
+        return self.fc3(x)
+```
+
+**After training:**
+
+```python
+net = Net()
+# ... train ...
+torch.save(net.state_dict(), "cifar10.pt")
+```
+
+### Keras (Jetson, ARM, MCU)
+
+Load a full saved model (architecture + weights): `.keras` or `.h5`.
+
+Weights-only `.h5` files are not supported. MCU requires Keras; FPGA requires PyTorch.
+
+### Per-target summary
+
+| Target | Accepted at deploy | Notes |
+|--------|-------------------|-------|
+| **FPGA** (`zcu104`) | PyTorch weights + `--model-class` | Vitis-AI Docker PTQ |
+| **Jetson** | PyTorch weights or Keras | PyTorch → ONNX → TensorRT; Keras via tf2onnx |
+| **ARM** (`raspberry_pi_4`) | PyTorch weights or Keras | PyTorch → ONNX → ncnn |
+| **MCU** (`stm32n6570_dk`) | Keras `.keras` / `.h5` only | TFLite + STEdgeAI |
 
 Use `--latency-type` that matches your intended deployment family so constraint ranking considers the right boards.
+
+Framework mismatches (e.g. Keras → FPGA) are **not** flagged during compatibility; they fail at **deployment** with a clear error.
 
 ## Linux setup
 
@@ -68,14 +122,14 @@ sudo apt install -y python3.11 python3.11-venv python3-pip git
 #   FPGA  → Docker
 #   Jetson → NVIDIA driver + CUDA (build TensorRT engines on a CUDA machine)
 #   MCU   → STMicroelectronics STEdgeAI (Linux installer)
-sudo apt install -y docker.io    # FPGA Vitis-AI export
-sudo usermod -aG docker "$USER"  # log out/in so docker runs without sudo
+sudo apt install -y docker.io
+sudo usermod -aG docker "$USER"   # log out/in so docker runs without sudo
 ```
 
 ### 2. Clone and create a virtual environment
 
 ```bash
-git https://github.com/surajkarki66/edge_ai_deployment_pipeline.git
+git clone https://github.com/surajkarki66/edge_ai_deployment_pipeline.git
 cd edge_ai_deployment_pipeline
 
 python3.11 -m venv .venv
@@ -83,7 +137,7 @@ source .venv/bin/activate
 python -m pip install --upgrade pip
 ```
 
-**Conda** works too (`conda create -n edge-ai python=3.11`).
+Conda works too (`conda create -n edge-ai python=3.11`).
 
 ### 3. Install Python dependencies
 
@@ -107,11 +161,11 @@ pip install -e .
 
 For **CPU-only** profiling (no Jetson TensorRT build), a plain `pip install -e .` is usually enough; TensorRT engine build will fail later without CUDA, which is expected.
 
-Optional extras if you want a slimmer base install later:
+Optional extras:
 
 ```bash
-pip install -e ".[dev]"        # mypy, ruff, pre-commit
-pip install -e ".[mcu]"        # adds mako (STM32N6 compile)
+pip install -e ".[dev]"   # mypy, ruff, pre-commit
+pip install -e ".[mcu]"   # adds mako (STM32N6 compile)
 ```
 
 ### 4. Calibration data
@@ -119,32 +173,21 @@ pip install -e ".[mcu]"        # adds mako (STM32N6 compile)
 INT8 / PTQ toolchains need images under `calibration_data` in `platforms.json` (default: `data/calibration/`). Point `toolchain_overrides` at your dataset if needed:
 
 - A **directory** of `.jpg` / `.png` images, or
-- A `**.txt` file** listing image paths (one per line)
+- A **`.txt` file** listing image paths (one per line)
 
 Bundled sample images live in `data/calibration/` for smoke tests.
 
 ### 5. Platform-specific host tools
 
-Install only what you need for your target board:
-
-
-| Target     | Host requirements                                                                                                                                                                                                                   |
-| ---------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **FPGA**   | [Docker](https://docs.docker.com/engine/install/) + pull `xilinx/vitis-ai-pytorch-cpu:latest`. Optional: clone [Vitis-AI](https://github.com/Xilinx/Vitis-AI) and set `VITIS_AI_REPO` if you rely on extra repo assets.             |
-| **Jetson** | NVIDIA GPU with CUDA on the build machine; TensorRT **10.x** (`tensorrt>=10.16.1.11,<11`) for INT8 calibration. Engines are typically built on the Jetson or another CUDA host.                                                     |
-| **ARM**    | ncnn + pnnx (installed via pip). No extra daemon.                                                                                                                                                                                   |
-| **MCU**    | [STEdgeAI](https://www.st.com/en/embedded-software/x-cube-ai.html) Linux package under `/opt/ST/STEdgeAI/<version>/Utilities/linux/stedgeai`. Set `STM32_AI_EXE` or pass path via toolchain config. `mako` is required for compile. |
-
-
-**FPGA Docker pull (one-time):**
+| Target | Host requirements |
+|--------|-------------------|
+| **FPGA** | [Docker](https://docs.docker.com/engine/install/) + `docker pull xilinx/vitis-ai-pytorch-cpu:latest`. Optional: clone [Vitis-AI](https://github.com/Xilinx/Vitis-AI) and set `VITIS_AI_REPO`. |
+| **Jetson** | NVIDIA GPU with CUDA; TensorRT **10.x** (`tensorrt>=10.16.1.11,<11`) for INT8 calibration. |
+| **ARM** | ncnn + pnnx (installed via pip). |
+| **MCU** | [STEdgeAI](https://www.st.com/en/embedded-software/x-cube-ai.html) under `/opt/ST/STEdgeAI/<version>/Utilities/linux/stedgeai`. Set `STM32_AI_EXE`. `mako` required for compile. |
 
 ```bash
 docker pull xilinx/vitis-ai-pytorch-cpu:latest
-```
-
-**MCU STEdgeAI (example):**
-
-```bash
 export STM32_AI_EXE=/opt/ST/STEdgeAI/4.0/Utilities/linux/stedgeai
 ```
 
@@ -157,47 +200,56 @@ python -c "import torch, tensorflow; print('torch', torch.__version__, 'tf', ten
 
 ## Run
 
-Basic example (FPGA / PyTorch):
+### PyTorch → FPGA (CIFAR-10 example)
 
 ```bash
-edge-ai-deploy path/to/model.pt \
-  --input-shape 3,224,224 \
+edge-ai-deploy data/cifar10.pt \
+  --model-class data/models/cifar_net.py:Net \
+  --input-shape 3,32,32 \
   --latency-type ultra_low \
-  --board-id zcu104 \
-  --auto-select \
-  -o artifacts/
+  --max-cost-usd 2000 \
+  --auto-select
 ```
 
-MCU / Keras example:
+### PyTorch → ARM / Jetson
+
+```bash
+edge-ai-deploy data/cifar10.pt \
+  --model-class data/models/cifar_net.py:Net \
+  --input-shape 3,32,32 \
+  --latency-type moderate \
+  --auto-select
+```
+
+### Keras → MCU
 
 ```bash
 edge-ai-deploy path/to/model.keras \
   --input-shape 3,96,96 \
   --latency-type low \
   --board-id stm32n6570_dk \
-  --auto-select \
-  -o artifacts/
+  --auto-select
 ```
 
 `--input-shape` is **required** (`C,H,W`, e.g. `3,224,224` for RGB).
 
 `--latency-type` is **required**:
 
-
-| Value       | Typical platforms                         |
-| ----------- | ----------------------------------------- |
-| `ultra_low` | FPGA (`zcu104`)                           |
-| `low`       | MCU (`stm32n6570_dk`)                     |
-| `medium`    | NVIDIA Jetson (`jetson_nano`, `agx_orin`) |
-| `moderate`  | Raspberry Pi (`raspberry_pi_4`)           |
-
+| Value | Typical platforms |
+|-------|-------------------|
+| `ultra_low` | FPGA (`zcu104`) |
+| `low` | MCU (`stm32n6570_dk`) |
+| `medium` | NVIDIA Jetson (`jetson_nano`, `agx_orin`) |
+| `moderate` | Raspberry Pi (`raspberry_pi_4`) |
 
 Or invoke the module directly:
 
 ```bash
-python -m edge_ai_deployment_pipeline.main path/to/model.pt \
-  --input-shape 3,224,224 \
-  --latency-type medium
+python -m edge_ai_deployment_pipeline.main data/cifar10.pt \
+  --model-class data/models/cifar_net.py:Net \
+  --input-shape 3,32,32 \
+  --latency-type ultra_low \
+  --auto-select
 ```
 
 ### Board selection
@@ -205,34 +257,40 @@ python -m edge_ai_deployment_pipeline.main path/to/model.pt \
 After constraint ranking, the CLI either:
 
 1. **Prompts** you to pick a rank (default), or
-2. Uses `**--board-id zcu104`** to deploy to a specific board, or
-3. Uses `**--auto-select**` to take rank #1 without prompting.
+2. Uses **`--board-id zcu104`** to deploy to a specific board, or
+3. Uses **`--auto-select`** to take rank #1 without prompting.
 
-Example with interactive selection omitted:
+Example with budget filters:
 
 ```bash
-edge-ai-deploy model.pt --input-shape 3,224,224 --latency-type medium \
-  --max-power-w 15 --max-cost-usd 150 --auto-select
+edge-ai-deploy data/cifar10.pt \
+  --model-class data/models/cifar_net.py:Net \
+  --input-shape 3,32,32 \
+  --latency-type ultra_low \
+  --max-power-w 15 \
+  --max-cost-usd 2000 \
+  --auto-select
 ```
 
 JSON output includes `rankings` (all scored boards) and `selected_platform` (the board used for deployment).
 
 ### CLI options
 
-
-| Flag                 | Default                  | Description                                                      |
-| -------------------- | ------------------------ | ---------------------------------------------------------------- |
-| `--latency-type`     | —                        | **Required.** `ultra_low`, `low`, `medium`, or `moderate`        |
-| `--input-shape`      | —                        | **Required.** `C,H,W` (e.g. `3,224,224`)                         |
-| `-o`, `--output-dir` | `artifacts`              | Directory for deployment artifacts                               |
-| `--platform-config`  | bundled `platforms.json` | Custom platform catalogue                                        |
-| `--max-power-w`      | `25`                     | Boards above this TDP are **excluded**                           |
-| `--max-cost-usd`     | `500`                    | Boards above this cost are **excluded**                          |
-| `--toolchain`        | —                        | Force a toolchain (`tensorrt`, `vitis_ai`, `ncnn`, `stm32n6`, …) |
-| `--board-id`         | —                        | Deploy to this board (skip interactive pick)                     |
-| `--auto-select`      | off                      | Use highest-ranked board without prompting                       |
-| `-v`, `--verbose`    | off                      | Debug logging                                                    |
-
+| Flag | Default | Description |
+|------|---------|-------------|
+| `model` | — | **Required.** `.pt`/`.pth` weights or `.keras`/`.h5` model |
+| `--latency-type` | — | **Required.** `ultra_low`, `low`, `medium`, or `moderate` |
+| `--input-shape` | — | **Required.** `C,H,W` (e.g. `3,224,224`) |
+| `--model-class` | — | **Required for `.pt`/`.pth`.** e.g. `data/models/cifar_net.py:Net` |
+| `--model-kwargs` | — | JSON constructor kwargs, e.g. `'{"num_classes": 10}'` |
+| `-o`, `--output-dir` | `artifacts` | Directory for deployment artifacts |
+| `--platform-config` | bundled `platforms.json` | Custom platform catalogue |
+| `--max-power-w` | `25` | Boards above this TDP are **excluded** |
+| `--max-cost-usd` | `500` | Boards above this cost are **excluded** |
+| `--toolchain` | — | Force a toolchain (`tensorrt`, `vitis_ai`, `ncnn`, `stm32n6`, …) |
+| `--board-id` | — | Deploy to this board (skip interactive pick) |
+| `--auto-select` | off | Use highest-ranked board without prompting |
+| `-v`, `--verbose` | off | Debug logging |
 
 ## Constraint scoring
 
@@ -248,40 +306,45 @@ Boards whose `tdp_watts` or `cost_usd` exceed `--max-power-w` or `--max-cost-usd
 
 Each toolchain uses either an **allowlist** (FPGA Vitis AI, MCU STM32N6) or **denylist** (Jetson TensorRT, ARM ncnn) of layer/operation names.
 
+| Status | Meaning |
+|--------|---------|
+| `fully_compatible` | No unsupported operations |
+| `partial` | Some unsupported ops, but ≤ 50% of layer inventory |
+| `incompatible` | > 50% unsupported — board is excluded |
 
-| Status             | Meaning                                            |
-| ------------------ | -------------------------------------------------- |
-| `fully_compatible` | No unsupported operations                          |
-| `partial`          | Some unsupported ops, but ≤ 50% of layer inventory |
-| `incompatible`     | > 50% unsupported — board is excluded              |
-
-
-Partial boards remain viable but are noted in constraint reasoning. Framework mismatches (e.g. Keras model → FPGA) are **not** flagged here; they fail at **deployment** with a clear error.
+Partial boards remain viable but are noted in constraint reasoning.
 
 ## Deployment notes
 
 The **deployment** stage runs the platform adapter for the selected board. Expect target-specific failures if host tools are missing.
 
-- **FPGA:** Runs Vitis-AI PyTorch quantization and DPU compile inside Docker. First run pulls a large image. Model must be eager PyTorch, not TorchScript.
-- **Jetson:** Builds a TensorRT engine via ONNX. Requires CUDA on the host for engine build. INT8 needs `calibration_data` and TensorRT 10.x.
-- **ARM:** Exports ncnn `.param` / `.bin` via PyTorch → ONNX → pnnx (Keras models round-trip through tf2onnx and onnx2torch).
-- **MCU:** Quantizes Keras to TFLite, then compiles with STEdgeAI. Requires the Linux `stedgeai` binary and `mako`.
+| Target | Output | Notes |
+|--------|--------|-------|
+| **FPGA** | `.xmodel` | Vitis-AI PyTorch PTQ + DPU compile in Docker. Stages `model.pt` (weights), `models/model_arch.py`, and `model_meta.json` into `artifacts/<board>/vitis_workspace/`. |
+| **Jetson** | TensorRT `.engine` | PyTorch → ONNX → TensorRT. Requires CUDA. INT8 needs `calibration_data` and TensorRT 10.x. |
+| **ARM** | ncnn `.param` / `.bin` | PyTorch → ONNX → pnnx. Keras via tf2onnx → onnx2torch. |
+| **MCU** | STEdgeAI bundle | Keras → TFLite → `stedgeai` compile. Requires `mako`. |
 
 Artifacts are written under `<output-dir>/<board-id>/`.
+
+Logs are written under `logs/` (one file per run).
 
 ## Project layout
 
 ```
 edge_ai_deployment_pipeline/
 ├── src/edge_ai_deployment_pipeline/
-│   ├── main.py                       # CLI entry (edge-ai-deploy)
-│   ├── core/                         # pipeline, CLI, board selection, types
-│   ├── stages/                       # intake, profiler, compatibility, constraint, deployment
-│   ├── adapters/                     # jetson, fpga, mcu, arm toolchains
-│   └── config/platforms.json         # platform catalogue
-├── data/calibration/                 # sample calibration images
+│   ├── main.py                 # CLI entry (edge-ai-deploy)
+│   ├── core/                   # pipeline, CLI, pytorch_loader, board selection
+│   ├── stages/                 # intake, profiler, compatibility, constraint, deployment
+│   ├── adapters/               # jetson, fpga, mcu, arm toolchains
+│   └── config/platforms.json   # platform catalogue
+├── data/
+│   ├── models/cifar_net.py     # example PyTorch network definition
+│   └── calibration/          # sample calibration images
+├── artifacts/                  # deployment output (created at run time)
+├── logs/                       # pipeline logs (created at run time)
 ├── pyproject.toml
 ├── requirements.txt
 └── ruff.toml
 ```
-
