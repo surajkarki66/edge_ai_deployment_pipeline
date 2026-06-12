@@ -7,6 +7,7 @@ from typing import Any
 from onnx2torch import convert as onnx2torch_convert
 
 from edge_ai_deployment_pipeline.adapters.jetson.toolchains.tf2onnx_export import export_to_onnx
+from edge_ai_deployment_pipeline.config.paths import DEFAULT_ARTIFACTS_DIR
 from edge_ai_deployment_pipeline.core.types import PlatformConfig
 
 logger = logging.getLogger(__name__)
@@ -22,7 +23,7 @@ def keras_to_pytorch_module(
 ) -> tuple[Any, Path]:
     """Convert a Keras model to PyTorch via ONNX."""
     platform_id = str(config.get("platform_id", config.get("board_id", "arm")))
-    board_dir = Path(config.get("output_dir", "artifacts")) / platform_id
+    board_dir = Path(config.get("output_dir", DEFAULT_ARTIFACTS_DIR)) / platform_id
     board_dir.mkdir(parents=True, exist_ok=True)
     onnx_path = board_dir / "model.onnx"
 

@@ -4,8 +4,10 @@ import logging
 from pathlib import Path
 from typing import Any
 
+from edge_ai_deployment_pipeline.config.paths import EXAMPLE_MODEL_CLASS
 from edge_ai_deployment_pipeline.core.pytorch_loader import load_pytorch_from_state_dict
-from edge_ai_deployment_pipeline.core.types import FrameworkTag, LoadedModel
+from edge_ai_deployment_pipeline.core.types import CvTask, FrameworkTag, LoadedModel
+from edge_ai_deployment_pipeline.core.yolo_loader import load_yolo
 
 logger = logging.getLogger(__name__)
 
@@ -21,10 +23,24 @@ class IntakeStage:
         *,
         model_class: str | None = None,
         model_kwargs: dict[str, Any] | None = None,
+        task: CvTask | None = None,
     ) -> LoadedModel:
         path = Path(model_path)
         if not path.exists():
             raise FileNotFoundError(f"Model path not found: {path}")
+
+        if task == CvTask.OBJECT_DETECTION:
+            if path.suffix.lower() not in {".pt", ".pth"}:
+                raise ValueError(
+                    "Object detection requires an Ultralytics model (.pt or .pth), "
+                    f"got: {path}"
+                )
+            if model_class:
+                raise ValueError(
+                    "Object detection uses Ultralytics models only; "
+                    "do not pass --model-class"
+                )
+            return self._load_ultralytics(path)
 
         if path.suffix.lower() in {".keras", ".h5"}:
             return self._load_keras(path)
@@ -37,6 +53,16 @@ class IntakeStage:
 
         raise ValueError(f"Unsupported model format: {path}")
 
+    def _load_ultralytics(self, path: Path) -> LoadedModel:
+        logger.debug("Loading Ultralytics model from %s", path)
+        model = load_yolo(path)
+        return LoadedModel(
+            framework=FrameworkTag.ULTRALYTICS,
+            source_path=str(path.resolve()),
+            model=model,
+            original_format="ultralytics",
+        )
+
     def _load_pytorch(
         self,
         path: Path,
@@ -47,7 +73,9 @@ class IntakeStage:
         if not model_class:
             raise ValueError(
                 "PyTorch weights require --model-class (network definition), e.g.\n"
-                "  --model-class data/models/cifar_net.py:Net\n"
+                f"  --model-class {EXAMPLE_MODEL_CLASS}\n"
+                "For object detection, pass --task object_detection with an "
+                "Ultralytics checkpoint (.pt).\n"
                 "Save weights with: torch.save(model.state_dict(), 'weights.pt')"
             )
 

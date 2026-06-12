@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from edge_ai_deployment_pipeline.adapters.fpga.toolchains.base import FpgaToolchain
+from edge_ai_deployment_pipeline.config.paths import DEFAULT_ARTIFACTS_DIR
 from edge_ai_deployment_pipeline.adapters.fpga.toolchains.vitis_ai_docker import (
     _docker_available,
     export_pytorch_to_dpu,
@@ -79,7 +80,7 @@ class VitisAiToolchain(FpgaToolchain):
         self, converted: dict[str, Any], config: PlatformConfig
     ) -> DeploymentArtifact:
         platform_id = str(config.get("platform_id", config.get("board_id", "fpga")))
-        board_dir = Path(config.get("output_dir", "artifacts")) / platform_id
+        board_dir = Path(config.get("output_dir", DEFAULT_ARTIFACTS_DIR)) / platform_id
         workspace = (board_dir / "vitis_workspace").resolve()
         workspace.mkdir(parents=True, exist_ok=True)
 

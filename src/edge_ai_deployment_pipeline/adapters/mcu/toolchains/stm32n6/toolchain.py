@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from edge_ai_deployment_pipeline.adapters.mcu.toolchains.base import McuToolchain
+from edge_ai_deployment_pipeline.config.paths import DEFAULT_ARTIFACTS_DIR
 from edge_ai_deployment_pipeline.adapters.mcu.toolchains.stm32n6.c_projects import resolve_application
 from edge_ai_deployment_pipeline.adapters.mcu.toolchains.stm32n6.deploy import export_keras_to_stm32n6
 from edge_ai_deployment_pipeline.core.types import DeploymentArtifact, FrameworkTag, PlatformConfig
@@ -82,7 +83,7 @@ class Stm32N6Toolchain(McuToolchain):
         self, converted: dict[str, Any], config: PlatformConfig
     ) -> DeploymentArtifact:
         platform_id = str(config.get("platform_id", config.get("board_id", "mcu")))
-        board_dir = Path(config.get("output_dir", "artifacts")) / platform_id
+        board_dir = Path(config.get("output_dir", DEFAULT_ARTIFACTS_DIR)) / platform_id
         board_dir.mkdir(parents=True, exist_ok=True)
 
         channels, height, width = converted["input_shape"]

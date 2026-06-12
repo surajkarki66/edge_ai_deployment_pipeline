@@ -6,9 +6,18 @@ from pathlib import Path
 from typing import Any
 
 from edge_ai_deployment_pipeline.adapters.arm.toolchains.base import ArmToolchain
+from edge_ai_deployment_pipeline.config.paths import DEFAULT_ARTIFACTS_DIR
 from edge_ai_deployment_pipeline.adapters.arm.toolchains.keras_to_pytorch import keras_to_pytorch_module
 from edge_ai_deployment_pipeline.adapters.arm.toolchains.ncnn_export import torch2ncnn
-from edge_ai_deployment_pipeline.core.types import DeploymentArtifact, FrameworkTag, PlatformConfig
+from edge_ai_deployment_pipeline.adapters.arm.toolchains.yolo_export import export_yolo_to_ncnn
+from edge_ai_deployment_pipeline.config.task import resolve_task
+from edge_ai_deployment_pipeline.core.types import (
+    CvTask,
+    DeploymentArtifact,
+    FrameworkTag,
+    PlatformConfig,
+)
+from edge_ai_deployment_pipeline.core.yolo_loader import yolo_class_names
 
 logger = logging.getLogger(__name__)
 
@@ -16,7 +25,16 @@ logger = logging.getLogger(__name__)
 class NcnnToolchain(ArmToolchain):
     name = "ncnn"
 
+    def _is_ultralytics_object_detection(self, config: PlatformConfig) -> bool:
+        return (
+            resolve_task(config) == CvTask.OBJECT_DETECTION
+            and config.get("framework") == FrameworkTag.ULTRALYTICS.value
+        )
+
     def validate(self, model: Any, config: PlatformConfig) -> bool:
+        if self._is_ultralytics_object_detection(config):
+            return config.get("framework") == FrameworkTag.ULTRALYTICS.value
+
         framework = config.get("framework")
         if framework == FrameworkTag.PYTORCH.value:
             return self.is_pytorch_model(model)
@@ -26,6 +44,22 @@ class NcnnToolchain(ArmToolchain):
 
     def convert(self, model: Any, config: PlatformConfig) -> dict[str, Any]:
         channels, height, width = self._require_input_shape(config)
+
+        if self._is_ultralytics_object_detection(config):
+            source_path = config.get("source_path")
+            if not source_path:
+                raise ValueError("source_path is required for YOLO NCNN export")
+            export_cfg = config.get("yolo_export")
+            half = bool(export_cfg.get("half", False)) if isinstance(export_cfg, dict) else False
+            return {
+                "source_path": str(source_path),
+                "input_shape": (channels, height, width),
+                "half": half,
+                "toolchain": self.name,
+                "export_backend": "yolo_ncnn",
+                "class_names": yolo_class_names(model),
+            }
+
         fp16 = self.resolve_fp16(config)
         framework = config.get("framework")
         channels_last = bool(config.get("channels_last", True))
@@ -69,8 +103,36 @@ class NcnnToolchain(ArmToolchain):
         self, converted: dict[str, Any], config: PlatformConfig
     ) -> DeploymentArtifact:
         platform_id = str(config.get("platform_id", config.get("board_id", "arm")))
-        board_dir = Path(config.get("output_dir", "artifacts")) / platform_id
+        board_dir = Path(config.get("output_dir", DEFAULT_ARTIFACTS_DIR)) / platform_id
         board_dir.mkdir(parents=True, exist_ok=True)
+
+        if converted.get("export_backend") == "yolo_ncnn":
+            _, height, width = converted["input_shape"]
+            param_path, bin_path, ncnn_py, ncnn_model_dir = export_yolo_to_ncnn(
+                source_path=Path(str(converted["source_path"])),
+                output_dir=board_dir,
+                height=height,
+                width=width,
+                config=config,
+            )
+            metadata = {
+                "toolchain": self.name,
+                "precision": "fp16" if converted["half"] else "fp32",
+                "compile_flags": config.get("compile_flags", {}),
+                "bin_path": str(bin_path.resolve()),
+                "ncnn_model_dir": str(ncnn_model_dir.resolve()),
+                "export_backend": "yolo_ncnn",
+                "class_names": converted.get("class_names", []),
+                "task": CvTask.OBJECT_DETECTION.value,
+            }
+            if ncnn_py is not None:
+                metadata["ncnn_py"] = str(ncnn_py.resolve())
+            return DeploymentArtifact(
+                platform_id=platform_id,
+                artifact_path=str(param_path.resolve()),
+                toolchain_used=self.name,
+                metadata=metadata,
+            )
 
         logger.info("Exporting PyTorch model to NCNN via PNNX in %s", board_dir)
         torch2ncnn(

@@ -6,6 +6,7 @@ from enum import Enum
 from pathlib import Path
 from typing import Any
 
+from edge_ai_deployment_pipeline.config.paths import DEFAULT_ARTIFACTS_DIR
 from edge_ai_deployment_pipeline.core.board_selection import apply_selection, resolve_board_choice
 from edge_ai_deployment_pipeline.core.types import (
     CompatibilityReport,
@@ -52,7 +53,7 @@ class Pipeline:
         self.model_path = Path(model_path)
         self.input_shape = input_shape
         self.requirements = requirements
-        self.output_dir = Path(output_dir or "artifacts")
+        self.output_dir = Path(output_dir or DEFAULT_ARTIFACTS_DIR)
         self.platform_config_path = platform_config_path
         self.board_id = board_id
         self.auto_select_board = auto_select_board
@@ -100,6 +101,7 @@ class Pipeline:
             self.model_path,
             model_class=self.model_class,
             model_kwargs=self.model_kwargs,
+            task=self.requirements.task,
         )
         logger.info("Loaded model: %s", result.loaded_model.to_dict())
 
@@ -120,7 +122,10 @@ class Pipeline:
         if result.profile is None:
             raise ValueError("Compatibility requires ModelProfile")
         logger.info("Stage 2: Compatibility analysis")
-        result.compatibility = self._compatibility.run(result.profile)
+        result.compatibility = self._compatibility.run(
+            result.profile,
+            requirements=self.requirements,
+        )
         logger.info("Compatibility: %s", result.compatibility.to_dict())
 
     def _run_constraint(self, result: PipelineResult) -> None:
@@ -174,5 +179,6 @@ class Pipeline:
             result.selected_platform,
             self.platform_config_path,
             input_shape=self.input_shape,
+            requirements=self.requirements,
         )
         logger.info("Deployment artifact: %s", result.artifact.to_dict())

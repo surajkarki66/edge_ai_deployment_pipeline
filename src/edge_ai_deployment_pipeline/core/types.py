@@ -11,6 +11,7 @@ PlatformConfig = dict[str, Any]
 class FrameworkTag(str, Enum):
     PYTORCH = "pytorch"
     KERAS = "keras"
+    ULTRALYTICS = "ultralytics"
 
 
 class CompatibilityStatus(str, Enum):
@@ -26,6 +27,13 @@ class LatencyType(str, Enum):
     LOW = "low"
     MEDIUM = "medium"
     MODERATE = "moderate"
+
+
+class CvTask(str, Enum):
+    """Computer-vision deployment task — drives platform-specific adaptations."""
+
+    IMAGE_CLASSIFICATION = "image_classification"
+    OBJECT_DETECTION = "object_detection"
 
 
 @dataclass
@@ -112,10 +120,15 @@ class UserRequirements:
     max_power_watts: float = 25.0
     max_cost_usd: float = 500.0
     toolchain: str | None = None  # force a toolchain; None = auto-select best per board
+    task: CvTask | None = None  # override platform default; None = use platforms.json
 
     def to_dict(self) -> dict[str, Any]:
         d = asdict(self)
         d["latency_type"] = self.latency_type.value
+        if self.task is not None:
+            d["task"] = self.task.value
+        else:
+            d.pop("task", None)
         return d
 
 

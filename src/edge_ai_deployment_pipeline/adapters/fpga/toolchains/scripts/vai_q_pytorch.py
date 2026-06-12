@@ -150,7 +150,7 @@ def load_model(model_path: str) -> torch.nn.Module:
     import json
 
     if not args.model_class:
-        raise ValueError("--model_class is required (e.g. models/model_arch.py:Net)")
+        raise ValueError("--model_class is required (e.g. data/model_class/cifar_net.py:Net)")
 
     model_cls = _import_model_class(args.model_class)
     kwargs = json.loads(args.model_kwargs or "{}")

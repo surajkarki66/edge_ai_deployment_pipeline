@@ -64,13 +64,17 @@ def _clone_repo(url: str, dest: Path) -> None:
 
 def resolve_application(config: dict[str, Any]) -> str | None:
     """Return a supported application key, or None if not specified."""
-    raw = config.get("application") or config.get("use_case")
+    raw = config.get("task") or config.get("application") or config.get("use_case")
     if not raw:
         return None
     key = str(raw).strip().lower().replace("-", "_")
+    if key == "classification":
+        key = APPLICATION_IMAGE_CLASSIFICATION
+    elif key == "detection":
+        key = APPLICATION_OBJECT_DETECTION
     if key not in SUPPORTED_APPLICATIONS:
         supported = ", ".join(sorted(SUPPORTED_APPLICATIONS))
-        raise ValueError(f"Unknown application '{raw}'. Supported: {supported}")
+        raise ValueError(f"Unknown task/application '{raw}'. Supported: {supported}")
     return key
 
 

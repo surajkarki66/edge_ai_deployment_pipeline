@@ -6,10 +6,11 @@ import sys
 
 from pathlib import Path
 
+from edge_ai_deployment_pipeline.config.paths import DEFAULT_ARTIFACTS_DIR, EXAMPLE_MODEL_CLASS
 from edge_ai_deployment_pipeline.core.logging_config import setup_logging
 from edge_ai_deployment_pipeline.core.pipeline import Pipeline
 from edge_ai_deployment_pipeline.core.pytorch_loader import parse_model_kwargs
-from edge_ai_deployment_pipeline.core.types import LatencyType, UserRequirements
+from edge_ai_deployment_pipeline.core.types import CvTask, LatencyType, UserRequirements
 
 logger = logging.getLogger(__name__)
 
@@ -47,8 +48,8 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "-o",
         "--output-dir",
         type=Path,
-        default=Path("artifacts"),
-        help="Directory for deployment artifacts (default: artifacts)",
+        default=DEFAULT_ARTIFACTS_DIR,
+        help="Directory for deployment artifacts (default: data/artifacts)",
     )
     parser.add_argument(
         "--platform-config",
@@ -82,6 +83,16 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="Force toolchain (stm32n6, vitis_ai, tensorrt, ncnn, …)",
     )
     parser.add_argument(
+        "--task",
+        type=CvTask,
+        default=None,
+        choices=list(CvTask),
+        help=(
+            "CV task override (image_classification, object_detection). "
+            "Defaults to the task set in platforms.json for the selected board."
+        ),
+    )
+    parser.add_argument(
         "--board-id",
         type=str,
         default=None,
@@ -100,7 +111,7 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         metavar="MODULE:CLASS",
         help=(
             "Required for .pt/.pth weights: network definition "
-            "(e.g. data/models/cifar_net.py:Net)"
+            f"(e.g. {EXAMPLE_MODEL_CLASS})"
         ),
     )
     parser.add_argument(
@@ -128,9 +139,14 @@ def main(argv: list[str] | None = None) -> int:
         logger.error("Model file not found: %s", args.model)
         return 1
 
-    if args.model.suffix.lower() in {".pt", ".pth"} and not args.model_class:
+    if (
+        args.model.suffix.lower() in {".pt", ".pth"}
+        and not args.model_class
+        and args.task != CvTask.OBJECT_DETECTION
+    ):
         logger.error(
-            "PyTorch weights (%s) require --model-class (e.g. data/models/cifar_net.py:Net)",
+            f"PyTorch weights (%s) require --model-class (e.g. {EXAMPLE_MODEL_CLASS}), "
+            "or pass --task object_detection for an Ultralytics checkpoint",
             args.model,
         )
         return 1
@@ -140,6 +156,7 @@ def main(argv: list[str] | None = None) -> int:
         max_power_watts=args.max_power_w,
         max_cost_usd=args.max_cost_usd,
         toolchain=args.toolchain,
+        task=args.task,
     )
 
     try:

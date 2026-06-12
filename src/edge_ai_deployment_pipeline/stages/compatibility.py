@@ -5,12 +5,15 @@ import logging
 from pathlib import Path
 
 from edge_ai_deployment_pipeline.config.catalogue import DEFAULT_CATALOGUE_PATH, PlatformCatalogue
+from edge_ai_deployment_pipeline.config.task import apply_task_to_config
 from edge_ai_deployment_pipeline.core.types import (
     CompatibilityReport,
     CompatibilityStatus,
+    CvTask,
     ModelProfile,
     PlatformCompatResult,
     PlatformConfig,
+    UserRequirements,
 )
 logger = logging.getLogger(__name__)
 
@@ -46,15 +49,22 @@ class CompatibilityStage:
     def __init__(self, platform_config_path: str | Path | None = None) -> None:
         self._config_path = Path(platform_config_path or DEFAULT_CATALOGUE_PATH)
 
-    def run(self, profile: ModelProfile) -> CompatibilityReport:
+    def run(
+        self,
+        profile: ModelProfile,
+        *,
+        requirements: UserRequirements | None = None,
+    ) -> CompatibilityReport:
         catalogue = PlatformCatalogue.load(self._config_path)
         board_ids = catalogue.board_ids()
+        task_override = requirements.task if requirements else None
 
         results: list[PlatformCompatResult] = []
         for board_id in board_ids:
             family = catalogue.platform_family(board_id)
             for toolchain in catalogue.list_toolchains(board_id):
                 spec = catalogue.resolve_board_config(board_id, toolchain)
+                apply_task_to_config(spec, override=task_override)
                 results.append(
                     self._analyze_board(board_id, toolchain, spec, family, profile)
                 )
@@ -76,6 +86,22 @@ class CompatibilityStage:
         platform_family: str,
         profile: ModelProfile,
     ) -> PlatformCompatResult:
+        if (
+            platform_family == "arm"
+            and board_spec.get("task") == CvTask.OBJECT_DETECTION.value
+        ):
+            return PlatformCompatResult(
+                platform_id=board_id,
+                platform_family=platform_family,
+                toolchain=toolchain,
+                status=CompatibilityStatus.FULLY_COMPATIBLE,
+                unsupported_operations=[],
+                notes=(
+                    "YOLO object detection uses Ultralytics NCNN export; "
+                    "layer denylist not applied"
+                ),
+            )
+
         unsupported = self._collect_unsupported_operations(board_spec, profile)
         status = self._compatibility_status(unsupported, profile)
 

@@ -6,7 +6,11 @@ from typing import Any
 
 import torch
 
-from edge_ai_deployment_pipeline.adapters.jetson.toolchains.base import JetsonToolchain, SUPPORTED_PRECISIONS
+from edge_ai_deployment_pipeline.adapters.jetson.toolchains.base import (
+    JetsonToolchain,
+    SUPPORTED_PRECISIONS,
+)
+from edge_ai_deployment_pipeline.config.paths import DEFAULT_ARTIFACTS_DIR
 from edge_ai_deployment_pipeline.adapters.jetson.toolchains.tensorrt_export import export_engine, export_engine_from_onnx
 from edge_ai_deployment_pipeline.adapters.jetson.toolchains.tf2onnx_export import export_to_onnx, resolve_trt_shape_from_onnx
 from edge_ai_deployment_pipeline.core.types import DeploymentArtifact, FrameworkTag, PlatformConfig
@@ -109,7 +113,7 @@ class TensorRTToolchain(JetsonToolchain):
         self, converted: dict[str, Any], config: PlatformConfig
     ) -> DeploymentArtifact:
         platform_id = str(config.get("platform_id", config.get("board_id", "jetson")))
-        board_dir = Path(config.get("output_dir", "artifacts")) / platform_id
+        board_dir = Path(config.get("output_dir", DEFAULT_ARTIFACTS_DIR)) / platform_id
         board_dir.mkdir(parents=True, exist_ok=True)
 
         metadata = {

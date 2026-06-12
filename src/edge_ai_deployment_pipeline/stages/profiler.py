@@ -25,7 +25,7 @@ class ProfilerStage:
         self._input_shape = input_shape
 
     def run(self, loaded: LoadedModel) -> ModelProfile:
-        if loaded.framework == FrameworkTag.PYTORCH:
+        if loaded.framework in (FrameworkTag.PYTORCH, FrameworkTag.ULTRALYTICS):
             profile = self._pytorch_model_profiler(loaded)
         else:
             profile = self._tensorflow_model_profiler(loaded)
@@ -34,7 +34,7 @@ class ProfilerStage:
     def _pytorch_model_profiler(self, loaded: LoadedModel) -> ModelProfile:
         import torch
 
-        model = self._resolve_pytorch_module(loaded.model)
+        model = self._resolve_pytorch_module(loaded.model, framework=loaded.framework)
         layer_inventory = self._pytorch_layer_inventory(model)
         input_resolution = self._input_shape
         dummy = torch.randn(1, *input_resolution)
@@ -58,11 +58,28 @@ class ProfilerStage:
             cpu_latency_ms=latency_ms,
         )
 
-    def _resolve_pytorch_module(self, handle: Any) -> Any:
+    def _resolve_pytorch_module(
+        self,
+        handle: Any,
+        *,
+        framework: FrameworkTag | None = None,
+    ) -> Any:
         import torch.nn as nn
+
+        # Ultralytics YOLO is an nn.Module but __call__ runs predict(), not forward().
+        if framework == FrameworkTag.ULTRALYTICS:
+            inner = getattr(handle, "model", None)
+            if isinstance(inner, nn.Module):
+                return inner.eval()
+            raise TypeError(
+                "Cannot profile Ultralytics model — missing inner nn.Module at .model"
+            )
 
         if isinstance(handle, nn.Module):
             return handle.eval()
+        inner = getattr(handle, "model", None)
+        if isinstance(inner, nn.Module):
+            return inner.eval()
         raise TypeError(
             f"Cannot profile PyTorch model — expected nn.Module, got {type(handle).__name__}"
         )

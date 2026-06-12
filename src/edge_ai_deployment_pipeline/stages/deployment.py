@@ -6,12 +6,15 @@ from pathlib import Path
 
 from edge_ai_deployment_pipeline.adapters.base import PlatformAdapter
 from edge_ai_deployment_pipeline.config.catalogue import PlatformCatalogue
+from edge_ai_deployment_pipeline.config.task import apply_task_to_config, resolve_task
 from edge_ai_deployment_pipeline.core.types import (
+    CvTask,
     DeploymentArtifact,
     FrameworkTag,
     LoadedModel,
     PlatformConfig,
     SelectedPlatform,
+    UserRequirements,
 )
 
 logger = logging.getLogger(__name__)
@@ -74,6 +77,7 @@ class DeploymentStage:
         platform_config_path: str | Path | None = None,
         *,
         input_shape: tuple[int, int, int] | None = None,
+        requirements: UserRequirements | None = None,
     ) -> DeploymentArtifact:
         board_id = selected.platform_id
         config = self._load_board_config(
@@ -82,6 +86,7 @@ class DeploymentStage:
             toolchain=selected.toolchain,
             loaded=loaded,
             input_shape=input_shape,
+            task_override=requirements.task if requirements else None,
         )
         adapter_id = str(config.get("adapter_id", selected.platform_family))
 
@@ -100,6 +105,12 @@ class DeploymentStage:
                 f"MCU deployment ({board_id}) requires a Keras model (.keras or .h5). "
                 f"Got {loaded.framework.value} model: {loaded.source_path}"
             )
+        if adapter_id == "arm" and loaded.framework == FrameworkTag.ULTRALYTICS:
+            if resolve_task(config) != CvTask.OBJECT_DETECTION:
+                raise ValueError(
+                    f"ARM Ultralytics deployment ({board_id}) requires "
+                    f"--task object_detection (got {resolve_task(config).value})"
+                )
         if adapter_id == "fpga" and loaded.framework != FrameworkTag.PYTORCH:
             raise ValueError(
                 f"FPGA deployment ({board_id}) requires a PyTorch model (.pt). "
@@ -127,12 +138,16 @@ class DeploymentStage:
                     f" MCU (STM32N6) requires a Keras model (.keras or .h5); "
                     f"got {loaded.framework.value}."
                 )
+            elif adapter_id == "arm" and loaded.framework == FrameworkTag.ULTRALYTICS:
+                if resolve_task(config) != CvTask.OBJECT_DETECTION:
+                    hint = " ARM Ultralytics deployment requires --task object_detection."
             raise ValueError(f"Adapter validation failed for board '{board_id}'.{hint}")
 
         converted = adapter.convert(loaded.model, config)
         artifact = adapter.build_artifact(converted, config)
         artifact.metadata["board_id"] = board_id
         artifact.metadata["platform_family"] = selected.platform_family
+        artifact.metadata["task"] = str(config["task"])
         if selected.toolchain:
             artifact.metadata["toolchain"] = selected.toolchain
         return artifact
@@ -145,10 +160,12 @@ class DeploymentStage:
         toolchain: str | None = None,
         loaded: LoadedModel | None = None,
         input_shape: tuple[int, int, int] | None = None,
+        task_override: CvTask | None = None,
     ) -> PlatformConfig:
         catalogue = PlatformCatalogue.load(config_path)
         resolved_tc = toolchain or catalogue.list_toolchains(board_id)[0]
         spec = catalogue.resolve_board_config(board_id, resolved_tc)
+        apply_task_to_config(spec, override=task_override)
         spec["output_dir"] = str(self.output_dir)
         spec["platform_id"] = board_id
         spec["board_id"] = board_id
