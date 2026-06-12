@@ -10,16 +10,34 @@ from edge_ai_deployment_pipeline.adapters.jetson.toolchains.base import (
     JetsonToolchain,
     SUPPORTED_PRECISIONS,
 )
-from edge_ai_deployment_pipeline.config.paths import DEFAULT_ARTIFACTS_DIR
+from edge_ai_deployment_pipeline.adapters.jetson.toolchains.yolo_export import export_yolo_to_tensorrt
 from edge_ai_deployment_pipeline.adapters.jetson.toolchains.tensorrt_export import export_engine, export_engine_from_onnx
 from edge_ai_deployment_pipeline.adapters.jetson.toolchains.tf2onnx_export import export_to_onnx, resolve_trt_shape_from_onnx
-from edge_ai_deployment_pipeline.core.types import DeploymentArtifact, FrameworkTag, PlatformConfig
+from edge_ai_deployment_pipeline.config.paths import DEFAULT_ARTIFACTS_DIR
+from edge_ai_deployment_pipeline.config.task import resolve_task
+from edge_ai_deployment_pipeline.core.types import (
+    CvTask,
+    DeploymentArtifact,
+    FrameworkTag,
+    PlatformConfig,
+)
+from edge_ai_deployment_pipeline.core.ultralytics_export import (
+    yolo_calibration_yaml,
+    yolo_export_int8,
+)
+from edge_ai_deployment_pipeline.core.yolo_loader import yolo_class_names
 
 logger = logging.getLogger(__name__)
 
 
 class TensorRTToolchain(JetsonToolchain):
     name = "tensorrt"
+
+    def _is_ultralytics_object_detection(self, config: PlatformConfig) -> bool:
+        return (
+            resolve_task(config) == CvTask.OBJECT_DETECTION
+            and config.get("framework") == FrameworkTag.ULTRALYTICS.value
+        )
 
     def validate(self, model: Any, config: PlatformConfig) -> bool:
         supported = config.get("supported_operations")
@@ -28,6 +46,33 @@ class TensorRTToolchain(JetsonToolchain):
         precision = str(config.get("default_precision", "fp16")).lower()
         if precision not in SUPPORTED_PRECISIONS:
             return False
+        if not torch.cuda.is_available():
+            logger.warning("TensorRT export requires CUDA; no GPU detected")
+            return False
+
+        if self._is_ultralytics_object_detection(config):
+            if yolo_export_int8(config, default_precision=precision):
+                if not yolo_calibration_yaml(config):
+                    logger.warning(
+                        "YOLO TensorRT INT8 requires yolo_export.calibration_data "
+                        "(Ultralytics dataset yaml; not the image-folder calibration_data)"
+                    )
+                    return False
+                try:
+                    import tensorrt as trt
+
+                    if int(trt.__version__.split(".", 1)[0]) >= 11:
+                        logger.error(
+                            "TensorRT INT8 calibration requires TensorRT 10.x "
+                            "(pip install 'tensorrt>=10.16.1.11,<11'). Found %s.",
+                            trt.__version__,
+                        )
+                        return False
+                except ImportError:
+                    logger.error("TensorRT is not installed")
+                    return False
+            return config.get("framework") == FrameworkTag.ULTRALYTICS.value
+
         if precision == "int8" and not config.get("calibration_data"):
             logger.warning("TensorRT INT8 requires calibration_data in platform config")
             return False
@@ -45,9 +90,6 @@ class TensorRTToolchain(JetsonToolchain):
             except ImportError:
                 logger.error("TensorRT is not installed")
                 return False
-        if not torch.cuda.is_available():
-            logger.warning("TensorRT export requires CUDA; no GPU detected")
-            return False
 
         framework = config.get("framework")
         if framework == FrameworkTag.PYTORCH.value:
@@ -61,6 +103,20 @@ class TensorRTToolchain(JetsonToolchain):
     def convert(self, model: Any, config: PlatformConfig) -> dict[str, Any]:
         channels, height, width = self._require_input_shape(config)
         precision = self.resolve_precision(config)
+
+        if self._is_ultralytics_object_detection(config):
+            source_path = config.get("source_path")
+            if not source_path:
+                raise ValueError("source_path is required for Ultralytics TensorRT export")
+            return {
+                "source_path": str(source_path),
+                "input_shape": (channels, height, width),
+                "precision": precision,
+                "toolchain": self.name,
+                "export_backend": "yolo_tensorrt",
+                "class_names": yolo_class_names(model),
+            }
+
         half, int8 = self.precision_to_trt_flags(precision)
         dynamic = bool(config.get("dynamic", False))
         opset = int(config.get("tf2onnx_opset", 13))
@@ -121,9 +177,33 @@ class TensorRTToolchain(JetsonToolchain):
             "precision": converted["precision"],
             "input_shape": list(converted["input_shape"]),
             "compile_flags": config.get("compile_flags", {}),
-            "dynamic": converted["dynamic"],
+            "dynamic": converted.get("dynamic", False),
             "export_backend": converted.get("export_backend", "torch"),
         }
+
+        if converted.get("export_backend") == "yolo_tensorrt":
+            _, height, width = converted["input_shape"]
+            engine_path = export_yolo_to_tensorrt(
+                source_path=Path(str(converted["source_path"])),
+                output_dir=board_dir,
+                height=height,
+                width=width,
+                config=config,
+                precision=str(converted["precision"]),
+            )
+            yolo_metadata = {
+                **metadata,
+                "export_backend": "yolo_tensorrt",
+                "engine_path": str(engine_path.resolve()),
+                "class_names": converted.get("class_names", []),
+                "task": CvTask.OBJECT_DETECTION.value,
+            }
+            return DeploymentArtifact(
+                platform_id=platform_id,
+                artifact_path=str(engine_path.resolve()),
+                toolchain_used=self.name,
+                metadata=yolo_metadata,
+            )
 
         if converted.get("export_backend") == "tf2onnx":
             return self._build_from_tensorflow(converted, config, platform_id, board_dir, metadata)

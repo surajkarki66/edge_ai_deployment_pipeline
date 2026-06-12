@@ -86,20 +86,22 @@ class CompatibilityStage:
         platform_family: str,
         profile: ModelProfile,
     ) -> PlatformCompatResult:
-        if (
-            platform_family == "arm"
-            and board_spec.get("task") == CvTask.OBJECT_DETECTION.value
+        if board_spec.get("task") == CvTask.OBJECT_DETECTION.value and platform_family in (
+            "arm",
+            "jetson",
         ):
+            export_note = (
+                "Ultralytics TensorRT export"
+                if platform_family == "jetson"
+                else "Ultralytics NCNN export"
+            )
             return PlatformCompatResult(
                 platform_id=board_id,
                 platform_family=platform_family,
                 toolchain=toolchain,
                 status=CompatibilityStatus.FULLY_COMPATIBLE,
                 unsupported_operations=[],
-                notes=(
-                    "YOLO object detection uses Ultralytics NCNN export; "
-                    "layer denylist not applied"
-                ),
+                notes=f"YOLO object detection uses {export_note}; layer checks not applied",
             )
 
         unsupported = self._collect_unsupported_operations(board_spec, profile)

@@ -12,9 +12,21 @@
           "unsupported_operations": [
             "Einsum"
           ],
-          "default_precision": "int8",
+          "default_precision": "fp16",
           "calibration_data": "data/calibration",
-          "calib_batch_size": 1
+          "calib_batch_size": 1,
+          "yolo_export": {
+            "format": "engine",
+            "int8": true,
+            "half": false,
+            "batch": 1,
+            "dynamic": false,
+            "simplify": true,
+            "nms": false,
+            "workspace": null,
+            "device": "0",
+            "calibration_data": "data/calibration/data.yaml"
+          }
         }
       },
       "boards": {

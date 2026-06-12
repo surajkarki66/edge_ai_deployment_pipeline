@@ -1,36 +1,20 @@
 from __future__ import annotations
 
 import logging
-import shutil
-
 from pathlib import Path
 from typing import Any
+
+from edge_ai_deployment_pipeline.core.ultralytics_export import (
+    resolve_imgsz,
+    stage_weights,
+    yolo_export_config,
+)
 
 logger = logging.getLogger(__name__)
 
 
-def _resolve_imgsz(
-    config: dict[str, Any],
-    *,
-    height: int,
-    width: int,
-) -> int | tuple[int, int]:
-    export_cfg = config.get("yolo_export")
-    if isinstance(export_cfg, dict) and export_cfg.get("imgsz") is not None:
-        raw = export_cfg["imgsz"]
-        if isinstance(raw, (list, tuple)) and len(raw) == 2:
-            return int(raw[0]), int(raw[1])
-        return int(raw)
-    if height == width:
-        return height
-    return (height, width)
-
-
-def _yolo_export_kwargs(config: dict[str, Any], *, imgsz: int | tuple[int, int]) -> dict[str, Any]:
-    export_cfg = config.get("yolo_export")
-    if not isinstance(export_cfg, dict):
-        export_cfg = {}
-
+def _ncnn_export_kwargs(config: dict[str, Any], *, imgsz: int | tuple[int, int]) -> dict[str, Any]:
+    export_cfg = yolo_export_config(config)
     kwargs: dict[str, Any] = {
         "format": str(export_cfg.get("format", "ncnn")),
         "imgsz": imgsz,
@@ -62,22 +46,12 @@ def export_yolo_to_ncnn(
     width: int,
     config: dict[str, Any],
 ) -> tuple[Path, Path, Path | None, Path]:
-    """Export a YOLO checkpoint to NCNN via Ultralytics.
-
-    Weights are copied into *output_dir* when needed so Ultralytics writes
-    ``{stem}_ncnn_model/`` beside them under the board artifacts folder.
-
-    Returns (param_path, bin_path, ncnn_py, ncnn_model_dir).
-    """
+    """Export a YOLO checkpoint to NCNN via Ultralytics."""
     from ultralytics import YOLO
 
-    output_dir.mkdir(parents=True, exist_ok=True)
-    imgsz = _resolve_imgsz(config, height=height, width=width)
-    export_kwargs = _yolo_export_kwargs(config, imgsz=imgsz)
-
-    weights = output_dir / source_path.name
-    if weights.resolve() != source_path.resolve():
-        shutil.copy2(source_path, weights)
+    imgsz = resolve_imgsz(config, height=height, width=width)
+    export_kwargs = _ncnn_export_kwargs(config, imgsz=imgsz)
+    weights = stage_weights(source_path, output_dir)
 
     logger.info(
         "Exporting YOLO %s → %s (imgsz=%s, half=%s)",

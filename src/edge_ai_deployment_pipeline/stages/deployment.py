@@ -20,6 +20,17 @@ from edge_ai_deployment_pipeline.core.types import (
 logger = logging.getLogger(__name__)
 
 
+def _resolve_yolo_calibration_yaml(raw: str, config_path: str | Path | None) -> str:
+    """Resolve a project dataset yaml; leave Ultralytics built-in names (e.g. coco8.yaml) as-is."""
+    path = Path(raw)
+    if path.is_file():
+        return str(path.resolve())
+    resolved = _resolve_config_path(raw, config_path)
+    if resolved.is_file():
+        return str(resolved)
+    return raw
+
+
 def _resolve_config_path(raw: str, config_path: str | Path | None) -> Path:
     """Resolve a config path; relative paths search cwd then ancestors of the catalogue file."""
     path = Path(raw)
@@ -105,11 +116,16 @@ class DeploymentStage:
                 f"MCU deployment ({board_id}) requires a Keras model (.keras or .h5). "
                 f"Got {loaded.framework.value} model: {loaded.source_path}"
             )
-        if adapter_id == "arm" and loaded.framework == FrameworkTag.ULTRALYTICS:
+        if loaded.framework == FrameworkTag.ULTRALYTICS:
             if resolve_task(config) != CvTask.OBJECT_DETECTION:
                 raise ValueError(
-                    f"ARM Ultralytics deployment ({board_id}) requires "
+                    f"Ultralytics deployment ({board_id}) requires "
                     f"--task object_detection (got {resolve_task(config).value})"
+                )
+            if adapter_id not in ("arm", "jetson"):
+                raise ValueError(
+                    f"Ultralytics models are supported on ARM (ncnn) and Jetson (tensorrt); "
+                    f"got adapter '{adapter_id}'"
                 )
         if adapter_id == "fpga" and loaded.framework != FrameworkTag.PYTORCH:
             raise ValueError(
@@ -138,9 +154,11 @@ class DeploymentStage:
                     f" MCU (STM32N6) requires a Keras model (.keras or .h5); "
                     f"got {loaded.framework.value}."
                 )
-            elif adapter_id == "arm" and loaded.framework == FrameworkTag.ULTRALYTICS:
+            elif loaded.framework == FrameworkTag.ULTRALYTICS:
                 if resolve_task(config) != CvTask.OBJECT_DETECTION:
-                    hint = " ARM Ultralytics deployment requires --task object_detection."
+                    hint = " Ultralytics deployment requires --task object_detection."
+                elif adapter_id not in ("arm", "jetson"):
+                    hint = " Ultralytics is supported on ARM (ncnn) and Jetson (tensorrt) only."
             raise ValueError(f"Adapter validation failed for board '{board_id}'.{hint}")
 
         converted = adapter.convert(loaded.model, config)
@@ -183,4 +201,13 @@ class DeploymentStage:
             spec["calibration_data"] = str(
                 _resolve_config_path(str(spec["calibration_data"]), config_path)
             )
+        export_cfg = spec.get("yolo_export")
+        if isinstance(export_cfg, dict) and export_cfg.get("calibration_data"):
+            spec["yolo_export"] = {
+                **export_cfg,
+                "calibration_data": _resolve_yolo_calibration_yaml(
+                    str(export_cfg["calibration_data"]),
+                    config_path,
+                ),
+            }
         return spec
