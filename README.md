@@ -19,7 +19,7 @@ End-to-end flow (all stages run in order):
 | **Board selection** | Pick a ranked board (interactive prompt, `--board-id`, or `--auto-select`) |
 | **Deployment** | Emit a deployable artifact for the selected target |
 
-On success the CLI prints a **JSON summary** to stdout (including `rankings` and the selected board) and writes deployment artifacts under `-o` (default `artifacts/`).
+On success the CLI prints a **JSON summary** to stdout (including `rankings` and the selected board) and writes deployment artifacts under `-o` (default `data/artifacts/`).
 
 Profiling, compatibility, and constraint checking run on CPU. **Deployment** may require extra host tools (Docker, CUDA, STEdgeAI, etc.) depending on the target platform.
 
@@ -50,12 +50,12 @@ Do **not** use `torch.save(model, path)` (full-model pickle). It is not supporte
 
 `--model-class` formats:
 
-- `data/models/cifar_net.py:Net` — path to a `.py` file
+- `data/model_class/cifar_net.py:Net` — path to a `.py` file
 - `mypackage.models:Net` — importable Python module
 
 Optional constructor args: `--model-kwargs '{"num_classes": 10}'`.
 
-**Example network** (`data/models/cifar_net.py`):
+**Example network** (`data/model_class/cifar_net.py`):
 
 ```python
 import torch
@@ -204,7 +204,7 @@ python -c "import torch, tensorflow; print('torch', torch.__version__, 'tf', ten
 
 ```bash
 edge-ai-deploy data/cifar10.pt \
-  --model-class data/models/cifar_net.py:Net \
+  --model-class data/model_class/cifar_net.py:Net \
   --input-shape 3,32,32 \
   --latency-type ultra_low \
   --max-cost-usd 2000 \
@@ -215,7 +215,7 @@ edge-ai-deploy data/cifar10.pt \
 
 ```bash
 edge-ai-deploy data/cifar10.pt \
-  --model-class data/models/cifar_net.py:Net \
+  --model-class data/model_class/cifar_net.py:Net \
   --input-shape 3,32,32 \
   --latency-type moderate \
   --auto-select
@@ -246,7 +246,7 @@ Or invoke the module directly:
 
 ```bash
 python -m edge_ai_deployment_pipeline.main data/cifar10.pt \
-  --model-class data/models/cifar_net.py:Net \
+  --model-class data/model_class/cifar_net.py:Net \
   --input-shape 3,32,32 \
   --latency-type ultra_low \
   --auto-select
@@ -264,7 +264,7 @@ Example with budget filters:
 
 ```bash
 edge-ai-deploy data/cifar10.pt \
-  --model-class data/models/cifar_net.py:Net \
+  --model-class data/model_class/cifar_net.py:Net \
   --input-shape 3,32,32 \
   --latency-type ultra_low \
   --max-power-w 15 \
@@ -281,9 +281,9 @@ JSON output includes `rankings` (all scored boards) and `selected_platform` (the
 | `model` | — | **Required.** `.pt`/`.pth` weights or `.keras`/`.h5` model |
 | `--latency-type` | — | **Required.** `ultra_low`, `low`, `medium`, or `moderate` |
 | `--input-shape` | — | **Required.** `C,H,W` (e.g. `3,224,224`) |
-| `--model-class` | — | **Required for `.pt`/`.pth`.** e.g. `data/models/cifar_net.py:Net` |
+| `--model-class` | — | **Required for `.pt`/`.pth`.** e.g. `data/model_class/cifar_net.py:Net` |
 | `--model-kwargs` | — | JSON constructor kwargs, e.g. `'{"num_classes": 10}'` |
-| `-o`, `--output-dir` | `artifacts` | Directory for deployment artifacts |
+| `-o`, `--output-dir` | `data/artifacts` | Directory for deployment artifacts |
 | `--platform-config` | bundled `platforms.json` | Custom platform catalogue |
 | `--max-power-w` | `25` | Boards above this TDP are **excluded** |
 | `--max-cost-usd` | `500` | Boards above this cost are **excluded** |
@@ -320,7 +320,7 @@ The **deployment** stage runs the platform adapter for the selected board. Expec
 
 | Target | Output | Notes |
 |--------|--------|-------|
-| **FPGA** | `.xmodel` | Vitis-AI PyTorch PTQ + DPU compile in Docker. Stages `model.pt` (weights), `models/model_arch.py`, and `model_meta.json` into `artifacts/<board>/vitis_workspace/`. |
+| **FPGA** | `.xmodel` | Vitis-AI PyTorch PTQ + DPU compile in Docker. Stages weights and architecture into `data/artifacts/<board>/vitis_workspace/`. |
 | **Jetson** | TensorRT `.engine` | PyTorch → ONNX → TensorRT. Requires CUDA. INT8 needs `calibration_data` and TensorRT 10.x. |
 | **ARM** | ncnn `.param` / `.bin` | PyTorch → ONNX → pnnx. Keras via tf2onnx → onnx2torch. |
 | **MCU** | STEdgeAI bundle | Keras → TFLite → `stedgeai` compile. Requires `mako`. |
@@ -339,10 +339,10 @@ edge_ai_deployment_pipeline/
 │   ├── stages/                 # intake, profiler, compatibility, constraint, deployment
 │   ├── adapters/               # jetson, fpga, mcu, arm toolchains
 │   └── config/platforms.json   # platform catalogue
-├── data/
-│   ├── models/cifar_net.py     # example PyTorch network definition
-│   └── calibration/          # sample calibration images
-├── artifacts/                  # deployment output (created at run time)
+├── data/                       # centralized data root
+│   ├── model_class/cifar_net.py  # example PyTorch network definition
+│   ├── calibration/            # sample calibration images
+│   └── artifacts/              # deployment output (created at run time)
 ├── logs/                       # pipeline logs (created at run time)
 ├── pyproject.toml
 ├── requirements.txt
