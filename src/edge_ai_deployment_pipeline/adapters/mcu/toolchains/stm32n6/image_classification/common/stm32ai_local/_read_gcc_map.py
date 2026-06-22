@@ -17,7 +17,7 @@ import sys
 
 from typing import Optional, List, Union
 
-from common.stm32ai_local.utils import TableWriter
+from edge_ai_deployment_pipeline.adapters.mcu.toolchains.stm32n6.image_classification.common.stm32ai_local.utils import TableWriter
 
 
 __title__ = 'Utility - Extract info from a GCC-map file'

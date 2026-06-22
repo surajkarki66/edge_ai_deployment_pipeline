@@ -111,7 +111,7 @@ class DeploymentStage:
             type(adapter).__name__,
         )
 
-        if adapter_id == "mcu" and loaded.framework != FrameworkTag.KERAS:
+        if adapter_id == "mcu" and loaded.framework != FrameworkTag.KERAS and loaded.framework != FrameworkTag.ULTRALYTICS:
             raise ValueError(
                 f"MCU deployment ({board_id}) requires a Keras model (.keras or .h5). "
                 f"Got {loaded.framework.value} model: {loaded.source_path}"
@@ -122,9 +122,9 @@ class DeploymentStage:
                     f"Ultralytics deployment ({board_id}) requires "
                     f"--task object_detection (got {resolve_task(config).value})"
                 )
-            if adapter_id not in ("arm", "jetson"):
+            if adapter_id not in ("arm", "jetson", "mcu"):
                 raise ValueError(
-                    f"Ultralytics models are supported on ARM (ncnn) and Jetson (tensorrt); "
+                    f"Ultralytics models are supported on ARM (ncnn), MCU and Jetson (tensorrt); "
                     f"got adapter '{adapter_id}'"
                 )
         if adapter_id == "fpga" and loaded.framework != FrameworkTag.PYTORCH:

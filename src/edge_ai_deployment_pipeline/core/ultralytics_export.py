@@ -12,7 +12,7 @@ def yolo_export_config(config: dict[str, Any]) -> dict[str, Any]:
 
 
 def yolo_calibration_yaml(config: dict[str, Any]) -> str | None:
-    """Ultralytics dataset yaml for INT8 calibration (not an image directory)."""
+    """Ultralytics dataset yaml for INT8 calibration."""
     export_cfg = yolo_export_config(config)
     raw = export_cfg.get("calibration_data")
     return str(raw) if raw else None

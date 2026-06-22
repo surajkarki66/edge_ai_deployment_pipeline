@@ -20,9 +20,9 @@ import shutil
 from typing import Optional
 
 
-from common.stm32ai_local.session import STMAiSession
-from common.stm32ai_local.utils import run_shell_cmd, _LOGGER_NAME_
-from common.stm32ai_local.stm_ai_tools import STMAiTools
+from edge_ai_deployment_pipeline.adapters.mcu.toolchains.stm32n6.image_classification.common.stm32ai_local.session import STMAiSession
+from edge_ai_deployment_pipeline.adapters.mcu.toolchains.stm32n6.image_classification.common.stm32ai_local.utils import run_shell_cmd, _LOGGER_NAME_
+from edge_ai_deployment_pipeline.adapters.mcu.toolchains.stm32n6.image_classification.common.stm32ai_local.stm_ai_tools import STMAiTools
 
 
 logger = logging.getLogger(_LOGGER_NAME_)

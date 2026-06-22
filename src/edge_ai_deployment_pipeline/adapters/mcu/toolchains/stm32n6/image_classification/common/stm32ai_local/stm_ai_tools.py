@@ -18,7 +18,7 @@ import re
 from pathlib import Path
 from typing import List, Union, Tuple
 
-from common.stm32ai_local.utils import (STMAICToolsError,
+from edge_ai_deployment_pipeline.adapters.mcu.toolchains.stm32n6.image_classification.common.stm32ai_local.utils import (STMAICToolsError,
                                  STMAiVersion,
                                  _LOGGER_NAME_,
                                  load_json_safe,

@@ -398,7 +398,7 @@ class TFLitePTQQuantizer:
         if self.granularity == "per_tensor" and self.optimize:
             logger.info("Optimizing the model for improved per_tensor quantization...")
             ensure_package_path()
-            from common.optimization import model_formatting_ptq_per_tensor
+            from edge_ai_deployment_pipeline.adapters.mcu.toolchains.stm32n6.object_detection.common.optimization import model_formatting_ptq_per_tensor
 
             self.model = model_formatting_ptq_per_tensor(model_origin=self.model)
             models_dir = pathlib.Path(os.path.join(self.output_dir, f"{self.export_dir}/"))

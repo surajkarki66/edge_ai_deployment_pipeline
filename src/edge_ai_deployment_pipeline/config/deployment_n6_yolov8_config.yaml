@@ -1,0 +1,155 @@
+operation_mode: deployment
+
+model:
+  model_path: not_important
+
+  # [EDIT] Model architecture type. Options: yolov8n, yolov8s, yolov8m, yolov11n, st_yoloxn, ...
+  model_type: yolov8n
+
+
+dataset:
+  # [EDIT] List the class names your model was trained on, in the same order as the training labels.
+  class_names: [airplane,
+                apple,
+                backpack,
+                banana,
+                baseball bat,
+                baseball glove,
+                bear,
+                bed,
+                bench,
+                bicycle,
+                bird,
+                boat,
+                book,
+                bottle,
+                bowl,
+                broccoli,
+                bus,
+                cake,
+                car,
+                carrot,
+                cat,
+                cell phone,
+                chair,
+                clock,
+                couch,
+                cow,
+                cup,
+                dining table,
+                dog,
+                donut,
+                elephant,
+                fire hydrant,
+                fork,
+                frisbee,
+                giraffe,
+                hair drier,
+                handbag,
+                horse,
+                hot dog,
+                keyboard,
+                kite,
+                knife,
+                laptop,
+                microwave,
+                motorcycle,
+                mouse,
+                orange,
+                oven,
+                parking meter,
+                person,
+                pizza,
+                potted plant,
+                refrigerator,
+                remote,
+                sandwich,
+                scissors,
+                sheep,
+                sink,
+                skateboard,
+                skis,
+                snowboard,
+                spoon,
+                sports ball,
+                stop sign,
+                suitcase,
+                surfboard,
+                teddy bear,
+                tennis racket,
+                tie,
+                toaster,
+                toilet,
+                toothbrush,
+                traffic light,
+                train,
+                truck,
+                tv,
+                umbrella,
+                vase,
+                wine glass,
+                zebra]
+
+preprocessing:
+  resizing:
+    # aspect_ratio: "crop" keeps original ratio by cropping. "fit" stretches to fill.
+    aspect_ratio: crop
+    interpolation: nearest
+  # [EDIT] Match this to how your model was trained. Usually "rgb" for YOLOv8/Ultralytics models.
+  color_mode: rgb
+
+postprocessing:
+  # Detections below this score are discarded. Lower = more detections, more false positives.
+  confidence_thresh: 0.5
+  # Non-maximum suppression threshold. Lower = fewer overlapping boxes kept.
+  NMS_thresh: 0.5
+  IoU_eval_thresh: 0.5
+  max_detection_boxes: 10
+
+tools:
+  stedgeai:
+    # optimization options: "balanced" | "time" (faster inference) | "ram" (lower memory)
+    optimization: balanced
+
+    # [EDIT] on_cloud: True uses ST Developer Cloud (no local STEdgeAI install needed, requires account).
+    # n_cloud: False uses a local STEdgeAI installation — set path_to_stedgeai below.
+    on_cloud: False
+
+    # [EDIT] Path to your local stedgeai executable. Only used when on_cloud is False.
+    # Update the version number to match your installation (e.g. 3.0, 3.1 ...).
+    # Windows example: C:/ST/STEdgeAI/4.0/Utilities/windows/stedgeai.exe
+    # Linux example:   /opt/ST/STEdgeAI/4.0/Utilities/linux/stedgeai
+    path_to_stedgeai: /opt/ST/STEdgeAI/4.0/Utilities/linux/stedgeai
+
+  # [EDIT] Path to your STM32CubeIDE executable. Update the version number to match your install.
+  # Windows example: C:/ST/STM32CubeIDE_1.17.0/STM32CubeIDE/stm32cubeide.exe
+  # Linux example: /opt/st/stm32cubeide_2.1.1/stm32cubeide
+  path_to_cubeIDE: /opt/st/stm32cubeide_2.1.1/stm32cubeide
+
+deployment:
+  # [EDIT] Path to the STM32N6 application C project.
+  # This submodule must be initialized first: git submodule update --init application_code/object_detection/STM32N6
+  c_project_path: /home/hsbi/Documents/Office_Works/edge_ai_deployment_pipeline/data/artifacts/_stm32n6_repos/STM32N6-GettingStarted-ObjectDetection
+
+  IDE: GCC
+  verbosity: 1  # 0 = silent, 1 = show build/flash messages
+
+  hardware_setup:
+    serie: STM32N6
+
+    # [EDIT] Set to the board you are using:
+    #   STM32N6570-DK       → Discovery kit
+    #   NUCLEO-N657X0-Q     → Nucleo board
+    board: STM32N6570-DK
+
+    # [EDIT] Display output interface. Only relevant for NUCLEO-N657X0-Q.
+    #   "UVCL" → USB/UVC host (connect a monitor via USB-C)
+    #   "SPI"  → X-NUCLEO-GFX01M2 display shield
+    #output: "UVCL"
+
+mlflow:
+   uri: /home/hsbi/Documents/Office_Works/edge_ai_deployment_pipeline/logs/mlruns
+
+hydra:
+   run:
+      dir: /home/hsbi/Documents/Office_Works/edge_ai_deployment_pipeline/logs/${now:%Y_%m_%d_%H_%M_%S}

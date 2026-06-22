@@ -179,7 +179,7 @@ def ensure_package_path() -> None:
 
 
 def parse_class_names(value: str) -> List[str]:
-    """Labels for app_config.h only (not used by STEdgeAI compile)."""
+    """Labels for app_config.h only."""
     names = [s.strip() for s in value.split(",") if s.strip()]
     if not names:
         raise ValueError("--class-names must contain at least one non-empty label")
@@ -266,7 +266,7 @@ def compile_and_optional_build(
     stlink_serial: Optional[str],
 ) -> Path:
     ensure_package_path()
-    import common.stm32ai_local as stmaic
+    import edge_ai_deployment_pipeline.adapters.mcu.toolchains.stm32n6.image_classification.common.stm32ai_local as stmaic
 
     conf_name = check_c_project(c_project_path, board)
 
@@ -364,7 +364,7 @@ def main() -> int:
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
     )
     parser = argparse.ArgumentParser(
-        description="Compile .tflite to STM32N6 C code (standalone, zoo-equivalent deploy compile step)",
+        description="Compile .tflite to STM32N6 C code",
     )
     parser.add_argument("--model", required=True, help="Quantized .tflite model")
     parser.add_argument(
