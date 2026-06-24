@@ -12,7 +12,6 @@ logger = logging.getLogger(__name__)
 
 APPLICATION_IMAGE_CLASSIFICATION = "image_classification"
 APPLICATION_OBJECT_DETECTION = "object_detection"
-COMPILATION_OBJECT_DETECTION = "compilation_object_detection"
 
 SUPPORTED_APPLICATIONS = frozenset(
     {APPLICATION_IMAGE_CLASSIFICATION, APPLICATION_OBJECT_DETECTION}
@@ -26,10 +25,6 @@ APPLICATION_REPOS: dict[str, str] = {
     APPLICATION_OBJECT_DETECTION: (
         "https://github.com/STMicroelectronics/"
         "STM32N6-GettingStarted-ObjectDetection.git"
-    ),
-    COMPILATION_OBJECT_DETECTION: (
-        "https://github.com/surajkarki66/"
-        "stm32ai-n6-yolov8-objectdetection.git"
     ),
 }
 
@@ -108,5 +103,4 @@ def resolve_c_project(config: dict[str, Any]) -> Path:
     dest = cache_root / _repo_dir_name(application)
     if not dest.is_dir() or not any(dest.iterdir()):
         _clone_repo(APPLICATION_REPOS[application], dest)
-        _clone_repo(APPLICATION_REPOS["compilation_object_detection"], cache_root / _repo_dir_name("compilation_object_detection"))
     return dest.resolve()

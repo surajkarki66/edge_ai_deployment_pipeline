@@ -1,14 +1,19 @@
 operation_mode: deployment
 
 model:
-  model_path: not_important
+  # [EDIT] Path to the quantized .tflite or .onnx model.
+  # Default points to the output of yolov8_quantization/tflite_quant.py.
+  # If you ran quantization with a different name or input size, update this path.
+  # Example for a 416x416 per-channel model: ../yolov8_quantization/quantized_models/yolov8n_416_quant_pc_uf_od_coco.tflite
+  model_path: /home/hsbi/Documents/Office_Works/edge_ai_deployment_pipeline/data/artifacts/stm32n6570_dk/yolov8_quant_pt_ui.tflite
 
   # [EDIT] Model architecture type. Options: yolov8n, yolov8s, yolov8m, yolov11n, st_yoloxn, ...
   model_type: yolov8n
 
-
 dataset:
   # [EDIT] List the class names your model was trained on, in the same order as the training labels.
+  # COCO 80-class example: [person, bicycle, car, motorcycle, airplane, bus, train, truck, boat, ...]
+  # For a single-class model just leave one entry, e.g. [person]
   class_names: [airplane,
                 apple,
                 backpack,
@@ -112,18 +117,18 @@ tools:
     optimization: balanced
 
     # [EDIT] on_cloud: True uses ST Developer Cloud (no local STEdgeAI install needed, requires account).
-    # n_cloud: False uses a local STEdgeAI installation — set path_to_stedgeai below.
+    #         on_cloud: False uses a local STEdgeAI installation — set path_to_stedgeai below.
     on_cloud: False
 
     # [EDIT] Path to your local stedgeai executable. Only used when on_cloud is False.
     # Update the version number to match your installation (e.g. 3.0, 3.1 ...).
-    # Windows example: C:/ST/STEdgeAI/4.0/Utilities/windows/stedgeai.exe
-    # Linux example:   /opt/ST/STEdgeAI/4.0/Utilities/linux/stedgeai
+    # Windows example: C:/ST/STEdgeAI/3.0/Utilities/windows/stedgeai.exe
+    # Linux example:   /opt/st/STEdgeAI/3.0/Utilities/linux/stedgeai
     path_to_stedgeai: /opt/ST/STEdgeAI/4.0/Utilities/linux/stedgeai
 
   # [EDIT] Path to your STM32CubeIDE executable. Update the version number to match your install.
   # Windows example: C:/ST/STM32CubeIDE_1.17.0/STM32CubeIDE/stm32cubeide.exe
-  # Linux example: /opt/st/stm32cubeide_2.1.1/stm32cubeide
+  # Linux example:   /opt/st/stm32cubeide_1.17.0/stm32cubeide
   path_to_cubeIDE: /opt/st/stm32cubeide_2.1.1/stm32cubeide
 
 deployment:
@@ -148,8 +153,9 @@ deployment:
     #output: "UVCL"
 
 mlflow:
-   uri: /home/hsbi/Documents/Office_Works/edge_ai_deployment_pipeline/logs/mlruns
+   uri: ./tf/src/experiments_outputs/mlruns
 
 hydra:
    run:
-      dir: /home/hsbi/Documents/Office_Works/edge_ai_deployment_pipeline/logs/${now:%Y_%m_%d_%H_%M_%S}
+      dir: ./tf/src/experiments_outputs/${now:%Y_%m_%d_%H_%M_%S}
+      

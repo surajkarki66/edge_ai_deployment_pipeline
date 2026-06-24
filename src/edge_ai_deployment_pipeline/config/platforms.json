@@ -151,7 +151,7 @@
             "format": "tflite",
             "int8": true,
             "calibration_data": "data/calibration/data.yaml",
-            "model_name": "yolov8",
+            "model_name": "yolov11",
             "quantization_type": "per_tensor"
           },
           "supported_operations": [
@@ -208,7 +208,7 @@
             "stm32n6": {
               "target_mcu": "STM32N6570",
               "board": "STM32N6570-DK",
-              "deployment_config_name": "deployment_n6_yolov8_config"
+              "deployment_config_name": "deployment_n6_yolo11n_config"
             }
           }
         }

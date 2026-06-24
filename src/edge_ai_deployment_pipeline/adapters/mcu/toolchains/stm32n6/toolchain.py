@@ -172,7 +172,6 @@ class Stm32N6Toolchain(McuToolchain):
             data_path = data_path.parent / "valid" / "images"
 
             export_cfg = yolo_export_config(config)
-            print(tflite_path)
 
             # Quantization
             quant_config =     {
@@ -192,7 +191,7 @@ class Stm32N6Toolchain(McuToolchain):
             # call deploy function
             PROJECT_ROOT = Path(__file__).resolve().parents[6]
 
-            COMPILATION_CODE_DIR = PROJECT_ROOT / "data" / "artifacts" / "_stm32n6_repos" / "stm32ai-n6-yolov8-objectdetection" / "object_detection"
+            COMPILATION_CODE_DIR = PROJECT_ROOT / "src" / "edge_ai_deployment_pipeline" / "adapters" / "mcu" / "toolchains" / "stm32n6" / "object_detection" / "stm32ai-n6-yolov8-objectdetection" / "object_detection"
 
             env = os.environ.copy()
             env["MLFLOW_ALLOW_FILE_STORE"] = "true"
@@ -204,12 +203,20 @@ class Stm32N6Toolchain(McuToolchain):
                     "--config-path",
                     "./config_file_examples/",
                     "--config-name",
-                    "deployment_n6_yolov8_config.yaml",
+                    "deployment_n6_yolo11n_config.yaml",
                 ],
                 cwd=COMPILATION_CODE_DIR,
                 check=True,
                 env=env,
             )
+            EXPERIMENT_OUT_DIR = PROJECT_ROOT / "src" / "edge_ai_deployment_pipeline" / "adapters" / "mcu" / "toolchains" / "stm32n6" / "object_detection" / "stm32ai-n6-yolov8-objectdetection" / "object_detection" / "tf" / "src" / "experiments_outputs"
+            DESTINATION_DIR = PROJECT_ROOT / "data" / "artifacts" / "stm32n6570_dk"
+            
+            # Ensure destination exists
+            DESTINATION_DIR.mkdir(parents=True, exist_ok=True)
+
+            # Move the directory
+            shutil.move(str(EXPERIMENT_OUT_DIR), str(DESTINATION_DIR))
             
             yolo_metadata = {
                 "toolchain": self.name,
