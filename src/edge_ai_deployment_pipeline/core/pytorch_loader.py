@@ -126,3 +126,14 @@ def load_pytorch_from_state_dict(
     state_dict = _strip_module_prefix(extract_state_dict(checkpoint))
     model.load_state_dict(state_dict)
     return model.eval()
+
+def load_pytorch_model(
+    weights_path: str,
+) -> nn.Module:
+    import torch
+
+    checkpoint = torch.load(weights_path, map_location=torch.device("cpu"))
+    model = checkpoint["model"]
+    model.float()
+    model.eval()
+    return model

@@ -103,7 +103,8 @@
             "BatchNorm",
             "BatchNormalization",
             "Flatten",
-            "InputLayer"
+            "InputLayer",
+            "Upsample"
           ],
           "quantization": "int8",
           "dpu_arch": "DPUCZDX8G",

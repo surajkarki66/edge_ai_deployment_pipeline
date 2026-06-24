@@ -89,7 +89,7 @@ def run_in_vitis_container(
     if vitis_ai_repo and vitis_ai_repo.is_dir():
         volumes.append(f"{vitis_ai_repo.resolve()}:/Vitis-AI")
 
-    inner = f"{conda_activate} && cd /workspace && {command}"
+    inner = f"{conda_activate} && pip install ultralytics && cd /workspace && {command}"
     cmd = [
         "docker",
         "run",

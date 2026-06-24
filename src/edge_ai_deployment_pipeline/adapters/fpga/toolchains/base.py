@@ -22,7 +22,7 @@ class FpgaToolchain(ABC):
     ) -> DeploymentArtifact: ...
 
     def _require_pytorch(self, config: PlatformConfig) -> None:
-        if config.get("framework") != FrameworkTag.PYTORCH.value:
+        if config.get("framework") not in (FrameworkTag.PYTORCH.value, FrameworkTag.ULTRALYTICS.value):
             raise ValueError(f"{self.name} toolchain requires a PyTorch model (.pt)")
 
     def _require_input_shape(self, config: PlatformConfig) -> tuple[int, int, int]:

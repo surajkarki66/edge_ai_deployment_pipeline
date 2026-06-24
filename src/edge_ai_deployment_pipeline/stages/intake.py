@@ -26,6 +26,7 @@ class IntakeStage:
         task: CvTask | None = None,
     ) -> LoadedModel:
         path = Path(model_path)
+        
         if not path.exists():
             raise FileNotFoundError(f"Model path not found: {path}")
 
@@ -34,11 +35,6 @@ class IntakeStage:
                 raise ValueError(
                     "Object detection requires an Ultralytics model (.pt or .pth), "
                     f"got: {path}"
-                )
-            if model_class:
-                raise ValueError(
-                    "Object detection uses Ultralytics models only; "
-                    "do not pass --model-class"
                 )
             return self._load_ultralytics(path)
 

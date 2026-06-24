@@ -39,8 +39,6 @@ class VitisAiToolchain(FpgaToolchain):
         if not _docker_available():
             logger.warning("Vitis-AI export requires Docker")
             return False
-        if config.get("framework") != FrameworkTag.PYTORCH.value:
-            return False
         return self.is_pytorch_model(model)
 
     def convert(self, model: Any, config: PlatformConfig) -> dict[str, Any]:
@@ -48,11 +46,15 @@ class VitisAiToolchain(FpgaToolchain):
         calibration_data = self._require_calibration_data(config)
         dpu_target = resolve_dpu_target(config)
         source_path = config.get("source_path")
+        
         if not source_path:
             raise ValueError("source_path is required for Vitis-AI export")
-        architecture_spec = config.get("architecture_spec")
-        if not architecture_spec:
-            raise ValueError("FPGA export requires --model-class")
+        
+        architecture_spec = None
+        if config.get("framework") != FrameworkTag.ULTRALYTICS.value:
+            architecture_spec = config.get("architecture_spec")
+            if not architecture_spec:
+                raise ValueError("FPGA export requires --model-class")
 
         self._require_pytorch(config)
         resolved = self.resolve_pytorch_model(model)
@@ -61,7 +63,7 @@ class VitisAiToolchain(FpgaToolchain):
             "framework": FrameworkTag.PYTORCH.value,
             "source_path": str(source_path),
             "original_format": str(config.get("original_format", "")),
-            "architecture_spec": str(architecture_spec),
+            "architecture_spec": architecture_spec,
             "model_kwargs": config.get("model_kwargs") or {},
             "input_shape": (channels, height, width),
             "calibration_data": str(calibration_data),
@@ -83,7 +85,7 @@ class VitisAiToolchain(FpgaToolchain):
         board_dir = Path(config.get("output_dir", DEFAULT_ARTIFACTS_DIR)) / platform_id
         workspace = (board_dir / "vitis_workspace").resolve()
         workspace.mkdir(parents=True, exist_ok=True)
-
+        
         channels, height, width = converted["input_shape"]
         self._stage_model_in_workspace(workspace, converted)
         logger.info("Staged weights and model definition under %s", workspace)
@@ -127,25 +129,34 @@ class VitisAiToolchain(FpgaToolchain):
         workspace: Path,
         converted: dict[str, Any],
     ) -> None:
-        """Copy weights + architecture ``.py`` for Vitis-AI Docker (state_dict loading)."""
+        """Copy weights + optionally architecture `.py` for Vitis-AI Docker."""
         source = Path(str(converted.get("source_path", "")))
         if not source.is_file():
             raise FileNotFoundError(f"Weights file not found: {source}")
 
-        architecture_spec = str(converted.get("architecture_spec", ""))
-        if not architecture_spec:
-            raise ValueError("FPGA export requires architecture_spec from --model-class")
-
-        _, class_name = split_model_class_spec(architecture_spec)
-        definition_file = resolve_model_definition_file(architecture_spec)
-
+        architecture_spec = converted.get("architecture_spec")
         models_dir = workspace / "models"
         models_dir.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(definition_file, models_dir / "model_arch.py")
+
+        # Always copy weights
         shutil.copy2(source, workspace / WORKSPACE_WEIGHTS)
 
-        meta = {
-            "model_class": f"{WORKSPACE_MODEL_CLASS}:{class_name}",
-            "model_kwargs": converted.get("model_kwargs") or {},
-        }
+        if architecture_spec:
+            architecture_spec = str(architecture_spec)
+            _, class_name = split_model_class_spec(architecture_spec)
+            definition_file = resolve_model_definition_file(architecture_spec)
+
+            shutil.copy2(definition_file, models_dir / "model_arch.py")
+
+            meta = {
+                "model_class": f"{WORKSPACE_MODEL_CLASS}:{class_name}",
+                "model_kwargs": converted.get("model_kwargs") or {},
+            }
+        else:
+            meta = {
+                "model_class": None,
+                "model_kwargs": converted.get("model_kwargs") or {},
+            }
+
+       
         (workspace / WORKSPACE_META).write_text(json.dumps(meta) + "\n")

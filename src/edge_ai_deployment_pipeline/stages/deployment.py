@@ -110,10 +110,10 @@ class DeploymentStage:
             tc_note,
             type(adapter).__name__,
         )
-
-        if adapter_id == "mcu" and loaded.framework != FrameworkTag.KERAS and loaded.framework != FrameworkTag.ULTRALYTICS:
+        if adapter_id == "mcu" and loaded.framework not in (FrameworkTag.KERAS, FrameworkTag.ULTRALYTICS):
             raise ValueError(
-                f"MCU deployment ({board_id}) requires a Keras model (.keras or .h5). "
+                f"MCU deployment ({board_id}) supports Keras (.keras/.h5) "
+                f"and Ultralytics (.pt) models. "
                 f"Got {loaded.framework.value} model: {loaded.source_path}"
             )
         if loaded.framework == FrameworkTag.ULTRALYTICS:
@@ -122,22 +122,20 @@ class DeploymentStage:
                     f"Ultralytics deployment ({board_id}) requires "
                     f"--task object_detection (got {resolve_task(config).value})"
                 )
-            if adapter_id not in ("arm", "jetson", "mcu"):
+            if adapter_id not in ("arm", "jetson", "mcu", "fpga"):
                 raise ValueError(
-                    f"Ultralytics models are supported on ARM (ncnn), MCU and Jetson (tensorrt); "
+                    f"Ultralytics models are supported on ARM (ncnn), Jetson (tensorrt), MCU, and FPGA; "
                     f"got adapter '{adapter_id}'"
                 )
-        if adapter_id == "fpga" and loaded.framework != FrameworkTag.PYTORCH:
+        if adapter_id == "fpga" and loaded.framework not in (FrameworkTag.PYTORCH, FrameworkTag.ULTRALYTICS):
             raise ValueError(
-                f"FPGA deployment ({board_id}) requires a PyTorch model (.pt). "
+                f"FPGA deployment ({board_id}) requires a PyTorch or Ultralytics model (.pt). "
                 f"Got {loaded.framework.value} model: {loaded.source_path}"
             )
 
         if not adapter.validate(loaded.model, config):
             hint = ""
-            if adapter_id == "fpga" and loaded.framework != FrameworkTag.PYTORCH:
-                hint = " Vitis-AI FPGA deployment supports PyTorch (.pt) models only."
-            elif adapter_id == "jetson" and selected.toolchain == "tensorrt":
+            if adapter_id == "jetson" and selected.toolchain == "tensorrt":
                 try:
                     import torch
 
@@ -149,19 +147,16 @@ class DeploymentStage:
                         )
                 except ImportError:
                     pass
-            elif adapter_id == "mcu" and loaded.framework != FrameworkTag.KERAS:
-                hint = (
-                    f" MCU (STM32N6) requires a Keras model (.keras or .h5); "
-                    f"got {loaded.framework.value}."
-                )
             elif loaded.framework == FrameworkTag.ULTRALYTICS:
                 if resolve_task(config) != CvTask.OBJECT_DETECTION:
                     hint = " Ultralytics deployment requires --task object_detection."
-                elif adapter_id not in ("arm", "jetson"):
-                    hint = " Ultralytics is supported on ARM (ncnn) and Jetson (tensorrt) only."
+                elif adapter_id not in ("arm", "jetson", "fpga", "mcu"):
+                    hint = " Ultralytics is supported on ARM, Jetson, MCU, and FPGA."
             raise ValueError(f"Adapter validation failed for board '{board_id}'.{hint}")
 
+        
         converted = adapter.convert(loaded.model, config)
+      
         artifact = adapter.build_artifact(converted, config)
         artifact.metadata["board_id"] = board_id
         artifact.metadata["platform_family"] = selected.platform_family

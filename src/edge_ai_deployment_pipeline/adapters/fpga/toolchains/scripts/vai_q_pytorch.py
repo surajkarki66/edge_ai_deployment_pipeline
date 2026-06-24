@@ -149,26 +149,32 @@ def _extract_state_dict(obj) -> dict:
 def load_model(model_path: str) -> torch.nn.Module:
     import json
 
-    if not args.model_class:
-        raise ValueError("--model_class is required (e.g. data/model_class/cifar_net.py:Net)")
+    model = None
+    if args.model_class != "None":
+        model_cls = _import_model_class(args.model_class)
+        kwargs = json.loads(args.model_kwargs or "{}")
+        if not isinstance(kwargs, dict):
+            raise ValueError("--model_kwargs must be a JSON object")
 
-    model_cls = _import_model_class(args.model_class)
-    kwargs = json.loads(args.model_kwargs or "{}")
-    if not isinstance(kwargs, dict):
-        raise ValueError("--model_kwargs must be a JSON object")
-
-    model = model_cls(**kwargs)
-    checkpoint = torch.load(model_path, map_location="cpu", weights_only=False)
-    state_dict = _extract_state_dict(checkpoint)
-    if any(key.startswith("module.") for key in state_dict):
-        state_dict = {
-            key[len("module.") :]: value
-            for key, value in state_dict.items()
-            if key.startswith("module.")
-        }
-    model.load_state_dict(state_dict)
-    model.float()
-    model.eval()
+        model = model_cls(**kwargs)
+        checkpoint = torch.load(model_path, map_location="cpu", weights_only=False)
+        state_dict = _extract_state_dict(checkpoint)
+        if any(key.startswith("module.") for key in state_dict):
+            state_dict = {
+                key[len("module.") :]: value
+                for key, value in state_dict.items()
+                if key.startswith("module.")
+            }
+        model.load_state_dict(state_dict)
+        model.float()
+        model.eval()
+        
+    else:
+        checkpoint = torch.load(model_path, map_location=torch.device("cpu"))
+        model = checkpoint["model"]
+        model.float()
+        model.eval()
+        
     return model
 
 
