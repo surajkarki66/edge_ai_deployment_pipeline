@@ -1,5 +1,5 @@
 # Edge AI Deployment Pipeline (Computer Vision)
-#ReMi Research Group HSBI
+# ReMi Research Group HSBI
 
 Modular pipeline for **computer-vision models** — profile, check compatibility, rank boards, choose a target, and deploy.
 
