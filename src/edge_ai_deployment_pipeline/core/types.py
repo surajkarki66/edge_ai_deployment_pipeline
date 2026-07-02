@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+
 from dataclasses import asdict, dataclass, field
 from enum import Enum
 from typing import Any
@@ -89,6 +90,7 @@ class PlatformCompatResult:
     unsupported_operations: list[str]
     notes: str
     toolchain: str | None = None  # deploy toolchain (tensorrt, vitis_ai, ncnn, …)
+    unsupported_layer_ratio: float = 0.0  # share of layers (by count) that are unsupported
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -98,6 +100,7 @@ class PlatformCompatResult:
             "toolchain": self.toolchain,
             "status": self.status.value,
             "unsupported_operations": self.unsupported_operations,
+            "unsupported_layer_ratio": round(self.unsupported_layer_ratio, 4),
             "notes": self.notes,
         }
 
@@ -105,30 +108,29 @@ class PlatformCompatResult:
 @dataclass
 class CompatibilityReport:
     results: list[PlatformCompatResult]
-    viable_platform_ids: list[str]
+    viable_platform_ids: list[str]  # all evaluated boards (included in rankings)
+    deployable_platform_ids: list[str] = field(default_factory=list)  # not incompatible
 
     def to_dict(self) -> dict[str, Any]:
         return {
             "results": [r.to_dict() for r in self.results],
             "viable_platform_ids": self.viable_platform_ids,
+            "deployable_platform_ids": self.deployable_platform_ids,
         }
 
 
 @dataclass
 class UserRequirements:
     latency_type: LatencyType
+    task: CvTask
     max_power_watts: float = 25.0
     max_cost_usd: float = 500.0
     toolchain: str | None = None  # force a toolchain; None = auto-select best per board
-    task: CvTask | None = None  # override platform default; None = use platforms.json
 
     def to_dict(self) -> dict[str, Any]:
         d = asdict(self)
         d["latency_type"] = self.latency_type.value
-        if self.task is not None:
-            d["task"] = self.task.value
-        else:
-            d.pop("task", None)
+        d["task"] = self.task.value
         return d
 
 
@@ -221,15 +223,22 @@ class PipelineResult:
     selected_platform: SelectedPlatform | None = None
     platform_rankings: list[PlatformRanking] | None = None
     artifact: DeploymentArtifact | None = None
+    run_id: str | None = None
+    artifacts_dir: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        payload: dict[str, Any] = {
             "loaded_model": self.loaded_model.to_dict() if self.loaded_model else None,
             "profile": self.profile.to_dict() if self.profile else None,
             "compatibility": self.compatibility.to_dict() if self.compatibility else None,
             "selected_platform": self._selected_platform_dict(),
             "artifact": self.artifact.to_dict() if self.artifact else None,
         }
+        if self.run_id is not None:
+            payload["run_id"] = self.run_id
+        if self.artifacts_dir is not None:
+            payload["artifacts_dir"] = self.artifacts_dir
+        return payload
 
     def _selected_platform_dict(self) -> dict[str, Any] | None:
         if self.selected_platform is None:

@@ -19,9 +19,11 @@ from edge_ai_deployment_pipeline.core.types import (
 
 logger = logging.getLogger(__name__)
 
+_COMPAT_MAX_PENALTY = 100.0
+
 
 class ConstraintCheckStage:
-    """Score viable boards; pick the best toolchain per board, then rank boards."""
+    """Score all boards; pick the best toolchain per board, then rank."""
 
     def __init__(self, platform_config_path: str | Path | None = None) -> None:
         self._config_path = Path(platform_config_path or DEFAULT_CATALOGUE_PATH)
@@ -62,7 +64,7 @@ class ConstraintCheckStage:
                     (
                         board_id,
                         display_name,
-                        ["no compatible toolchain available for this board"],
+                        ["no toolchain compatibility results for this board"],
                     )
                 )
 
@@ -114,8 +116,7 @@ class ConstraintCheckStage:
         profile: ModelProfile,
         requirements: UserRequirements,
     ) -> list[tuple[str, str, str | None, ScoreBreakdown, str]]:
-        viable = [r for r in compat_results if r.status != CompatibilityStatus.INCOMPATIBLE]
-        if not viable:
+        if not compat_results:
             return []
 
         toolchains = catalogue.list_toolchains(board_id)
@@ -127,7 +128,7 @@ class ConstraintCheckStage:
                     f"is not available on board '{board_id}'"
                 )
 
-        compat_by_tc = {r.toolchain: r for r in viable if r.toolchain}
+        compat_by_tc = {r.toolchain: r for r in compat_results if r.toolchain}
         scored: list[tuple[str, str, str | None, ScoreBreakdown, str]] = []
         for toolchain in toolchains:
             compat = compat_by_tc.get(toolchain)
@@ -213,6 +214,7 @@ class ConstraintCheckStage:
         runtime_mb = max(profile.peak_activation_memory_mb, profile.inference_ram_mb)
         memory_ok = profile.model_size_mb + runtime_mb <= memory_mb
         memory_penalty = 0.0 if memory_ok else 50.0
+        compatibility_penalty = compat.unsupported_layer_ratio * _COMPAT_MAX_PENALTY
 
         weights = {"power": 0.5, "cost": 0.5}
         total = 0.0
@@ -221,6 +223,7 @@ class ConstraintCheckStage:
         if cost_score is not None:
             total += cost_score * weights["cost"]
         total -= memory_penalty
+        total -= compatibility_penalty
 
         display_name = spec.get("display_name", board_id)
         details: dict[str, object] = {
@@ -232,6 +235,8 @@ class ConstraintCheckStage:
             "cost_usd": cost_usd,
             "memory_mb": memory_mb,
             "memory_ok": memory_ok,
+            "compatibility_status": compat.status.value,
+            "unsupported_layer_ratio": round(compat.unsupported_layer_ratio, 4),
         }
         if toolchain:
             details["toolchain"] = toolchain
@@ -243,7 +248,13 @@ class ConstraintCheckStage:
         ]
         if toolchain:
             reasoning_parts[0] = f"{display_name} [{toolchain}]: score={total:.1f}"
-        if compat.status == CompatibilityStatus.PARTIALLY_COMPATIBLE:
+        if compat.unsupported_layer_ratio > 0:
+            reasoning_parts.append(
+                f"unsupported layer share {compat.unsupported_layer_ratio:.1%}"
+            )
+        if compat.status == CompatibilityStatus.INCOMPATIBLE:
+            reasoning_parts.append("incompatible")
+        elif compat.status == CompatibilityStatus.PARTIALLY_COMPATIBLE:
             reasoning_parts.append("partial compatibility")
         if not memory_ok:
             reasoning_parts.append("memory constraint exceeded")

@@ -108,7 +108,7 @@ Weights-only `.h5` files are not supported. MCU requires Keras; FPGA requires Py
 
 Use `--latency-type` that matches your intended deployment family so constraint ranking considers the right boards.
 
-Framework mismatches (e.g. Keras → FPGA) are **not** flagged during compatibility; they fail at **deployment** with a clear error.
+Framework mismatches (e.g. Keras → FPGA, PyTorch → MCU) are flagged during **compatibility** and excluded from board ranking before deployment.
 
 ## Linux setup
 
@@ -176,7 +176,7 @@ INT8 / PTQ toolchains need images under `calibration_data` in `platforms.json` (
 - A **directory** of `.jpg` / `.png` images, or
 - A **`.txt` file** listing image paths (one per line)
 
-Bundled sample images live in `data/calibration/` for smoke tests.
+Bundled sample images live in `data/calibration/` for PTQ examples.
 
 ### 5. Platform-specific host tools
 
@@ -207,6 +207,7 @@ python -c "import torch, tensorflow; print('torch', torch.__version__, 'tf', ten
 edge-ai-deploy data/cifar10.pt \
   --model-class data/model_class/cifar_net.py:Net \
   --input-shape 3,32,32 \
+  --task image_classification \
   --latency-type ultra_low \
   --max-cost-usd 2000 \
   --auto-select
@@ -218,6 +219,7 @@ edge-ai-deploy data/cifar10.pt \
 edge-ai-deploy data/cifar10.pt \
   --model-class data/model_class/cifar_net.py:Net \
   --input-shape 3,32,32 \
+  --task image_classification \
   --latency-type moderate \
   --auto-select
 ```
@@ -227,12 +229,20 @@ edge-ai-deploy data/cifar10.pt \
 ```bash
 edge-ai-deploy path/to/model.keras \
   --input-shape 3,96,96 \
+  --task image_classification \
   --latency-type low \
   --board-id stm32n6570_dk \
   --auto-select
 ```
 
 `--input-shape` is **required** (`C,H,W`, e.g. `3,224,224` for RGB).
+
+`--task` is **required**:
+
+| Value | Use case |
+|-------|----------|
+| `image_classification` | Classifiers (e.g. CIFAR-10, ResNet) |
+| `object_detection` | Ultralytics YOLO checkpoints (`.pt`) |
 
 `--latency-type` is **required**:
 
@@ -249,6 +259,7 @@ Or invoke the module directly:
 python -m edge_ai_deployment_pipeline.main data/cifar10.pt \
   --model-class data/model_class/cifar_net.py:Net \
   --input-shape 3,32,32 \
+  --task image_classification \
   --latency-type ultra_low \
   --auto-select
 ```
@@ -267,6 +278,7 @@ Example with budget filters:
 edge-ai-deploy data/cifar10.pt \
   --model-class data/model_class/cifar_net.py:Net \
   --input-shape 3,32,32 \
+  --task image_classification \
   --latency-type ultra_low \
   --max-power-w 15 \
   --max-cost-usd 2000 \
@@ -280,11 +292,14 @@ JSON output includes `rankings` (all scored boards) and `selected_platform` (the
 | Flag | Default | Description |
 |------|---------|-------------|
 | `model` | — | **Required.** `.pt`/`.pth` weights or `.keras`/`.h5` model |
+| `--task` | — | **Required.** `image_classification` or `object_detection` |
 | `--latency-type` | — | **Required.** `ultra_low`, `low`, `medium`, or `moderate` |
 | `--input-shape` | — | **Required.** `C,H,W` (e.g. `3,224,224`) |
 | `--model-class` | — | **Required for `.pt`/`.pth`.** e.g. `data/model_class/cifar_net.py:Net` |
 | `--model-kwargs` | — | JSON constructor kwargs, e.g. `'{"num_classes": 10}'` |
-| `-o`, `--output-dir` | `data/artifacts` | Directory for deployment artifacts |
+| `-o`, `--output-dir` | `data/artifacts` | Base dir; each run writes to `data/artifacts/<run-id>/` |
+| `--clean` | off | Remove previous artifact runs and logs before starting |
+| `--check-host` | off | Run host pre-flight checks and exit (no model deploy) |
 | `--platform-config` | bundled `platforms.json` | Custom platform catalogue |
 | `--max-power-w` | `25` | Boards above this TDP are **excluded** |
 | `--max-cost-usd` | `500` | Boards above this cost are **excluded** |
@@ -293,9 +308,48 @@ JSON output includes `rankings` (all scored boards) and `selected_platform` (the
 | `--auto-select` | off | Use highest-ranked board without prompting |
 | `-v`, `--verbose` | off | Debug logging |
 
+### Host pre-flight checks
+
+Verify Docker, Vitis-AI, STEdgeAI, STM32CubeIDE, TensorRT, and CUDA before a long deploy run:
+
+```bash
+edge-ai-deploy doctor
+# or
+edge-ai-deploy --check-host
+edge-ai-doctor
+```
+
+Checks include:
+
+| Check | Required for |
+|-------|----------------|
+| Python (torch, tensorflow) | All stages |
+| Docker | FPGA (Vitis AI) |
+| `xilinx/vitis-ai-pytorch-cpu:latest` image | FPGA quantize + DPU compile |
+| `STM32_AI_EXE` | MCU (STEdgeAI compile) |
+| `STM32_CUBE_IDE_EXE` | MCU firmware build (Keras compile / YOLO deploy) |
+| TensorRT 10.x | Jetson INT8 |
+| CUDA | Jetson TensorRT engine build |
+
+### Run output layout
+
+Each invocation gets a unique `run_id`. Artifacts go under `data/artifacts/<run-id>/<board-id>/`. Logs are written to `logs/pipeline_<run-id>.log`. Old runs and logs are rotated automatically (50 logs, 20 artifact runs retained). Use `--clean` to wipe them before a new run.
+
+JSON output includes `run_id` and `artifacts_dir`.
+
+## Development
+
+```bash
+pip install -e ".[dev]"
+ruff check src
+mypy
+```
+
+CI (GitHub Actions) runs ruff and mypy on every push/PR to `main`.
+
 ## Constraint scoring
 
-For each viable board matching `--latency-type`, the best toolchain per board is scored and all candidates are **ranked** (highest score first).
+For each board matching `--latency-type`, the best toolchain per board is scored and **all** candidates are **ranked** (highest score first). The compatibility penalty is `unsupported_layer_ratio × 100` (e.g. 10% unsupported layers → −10 score).
 
 **Score weights:** power 50%, cost 50%.
 
@@ -310,10 +364,10 @@ Each toolchain uses either an **allowlist** (FPGA Vitis AI, MCU STM32N6) or **de
 | Status | Meaning |
 |--------|---------|
 | `fully_compatible` | No unsupported operations |
-| `partial` | Some unsupported ops, but ≤ 50% of layer inventory |
-| `incompatible` | > 50% unsupported — board is excluded |
+| `partial` | Some unsupported layers, but ≤ 50% of total layer count |
+| `incompatible` | Framework mismatch and/or > 50% unsupported layers — ranked with a score penalty |
 
-Partial boards remain viable but are noted in constraint reasoning.
+Layer compatibility is measured by **layer count** (e.g. 1 unsupported `Einsum` out of 87 layers ≈ 1%), not by unique layer type names. Partial and incompatible boards are included in rankings; the score penalty is proportional to `unsupported_layer_ratio` (up to −100).
 
 ## Deployment notes
 
@@ -326,9 +380,9 @@ The **deployment** stage runs the platform adapter for the selected board. Expec
 | **ARM** | ncnn `.param` / `.bin` | PyTorch → ONNX → pnnx. Keras via tf2onnx → onnx2torch. |
 | **MCU** | STEdgeAI bundle | Keras → TFLite → `stedgeai` compile. Requires `mako`. |
 
-Artifacts are written under `<output-dir>/<board-id>/`.
+Artifacts are written under `<output-dir>/<run-id>/<board-id>/` (default `data/artifacts/<run-id>/`).
 
-Logs are written under `logs/` (one file per run).
+Logs are written under `logs/pipeline_<run-id>.log`.
 
 ## Project layout
 
@@ -343,8 +397,9 @@ edge_ai_deployment_pipeline/
 ├── data/                       # centralized data root
 │   ├── model_class/cifar_net.py  # example PyTorch network definition
 │   ├── calibration/            # sample calibration images
-│   └── artifacts/              # deployment output (created at run time)
-├── logs/                       # pipeline logs (created at run time)
+│   └── artifacts/              # deployment output (<run-id>/<board-id>/)
+├── logs/                       # pipeline logs (pipeline_<run-id>.log)
+├── .github/workflows/ci.yml    # ruff, mypy
 ├── pyproject.toml
 ├── requirements.txt
 └── ruff.toml

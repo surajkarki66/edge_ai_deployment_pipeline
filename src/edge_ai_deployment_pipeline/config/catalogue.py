@@ -114,3 +114,23 @@ class PlatformCatalogue:
         else:
             merged.pop("unsupported_operations", None)
         return merged
+
+
+def targets_vitis_ai_flow(
+    *,
+    board_id: str | None = None,
+    toolchain: str | None = None,
+    platform_config_path: str | Path | None = None,
+) -> bool:
+    """Return True when the pipeline is explicitly targeting the Vitis-AI FPGA flow."""
+    if toolchain == "vitis_ai":
+        return True
+    if toolchain is not None:
+        return False
+    if board_id is None:
+        return False
+
+    catalogue = PlatformCatalogue.load(platform_config_path)
+    if board_id not in catalogue.board_ids():
+        return False
+    return catalogue.adapter_id(board_id) == "fpga"

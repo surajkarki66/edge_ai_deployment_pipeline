@@ -6,6 +6,7 @@ from enum import Enum
 from pathlib import Path
 from typing import Any
 
+from edge_ai_deployment_pipeline.config.catalogue import targets_vitis_ai_flow
 from edge_ai_deployment_pipeline.config.paths import DEFAULT_ARTIFACTS_DIR
 from edge_ai_deployment_pipeline.core.board_selection import apply_selection, resolve_board_choice
 from edge_ai_deployment_pipeline.core.types import (
@@ -49,6 +50,7 @@ class Pipeline:
         interactive: bool = True,
         model_class: str | None = None,
         model_kwargs: dict[str, Any] | None = None,
+        run_id: str | None = None,
     ) -> None:
         self.model_path = Path(model_path)
         self.input_shape = input_shape
@@ -60,6 +62,7 @@ class Pipeline:
         self.interactive = interactive
         self.model_class = model_class
         self.model_kwargs = model_kwargs
+        self.run_id = run_id
 
         self._intake = IntakeStage()
         self._profiler = ProfilerStage(input_shape)
@@ -75,6 +78,7 @@ class Pipeline:
         compatibility: CompatibilityReport | None = None,
         selected_platform: SelectedPlatform | None = None,
         artifact: DeploymentArtifact | None = None,
+        stop_after: PipelineStage | None = None,
     ) -> PipelineResult:
         result = PipelineResult(
             loaded_model=loaded_model,
@@ -82,12 +86,22 @@ class Pipeline:
             compatibility=compatibility,
             selected_platform=selected_platform,
             artifact=artifact,
+            run_id=self.run_id,
+            artifacts_dir=str(self.output_dir),
         )
 
         self._run_intake(result)
+        if stop_after == PipelineStage.INTAKE:
+            return result
         self._run_profiler(result)
+        if stop_after == PipelineStage.PROFILER:
+            return result
         self._run_compatibility(result)
+        if stop_after == PipelineStage.COMPATIBILITY:
+            return result
         self._run_constraint(result)
+        if stop_after == PipelineStage.CONSTRAINT:
+            return result
         self._run_board_selection(result)
         self._run_deployment(result)
         return result
@@ -97,11 +111,19 @@ class Pipeline:
             logger.info("Skipping intake — LoadedModel already provided")
             return
         logger.info("Stage 1a: Model intake — %s", self.model_path)
+        patch_ultralytics_dpu = targets_vitis_ai_flow(
+            board_id=self.board_id,
+            toolchain=self.requirements.toolchain,
+            platform_config_path=self.platform_config_path,
+        )
+        if patch_ultralytics_dpu:
+            logger.info("Vitis-AI flow detected — patching Ultralytics DPU layers before load")
         result.loaded_model = self._intake.run(
             self.model_path,
             model_class=self.model_class,
             model_kwargs=self.model_kwargs,
             task=self.requirements.task,
+            patch_ultralytics_dpu=patch_ultralytics_dpu,
         )
         logger.info("Loaded model: %s", result.loaded_model.to_dict())
 
@@ -121,9 +143,12 @@ class Pipeline:
             return
         if result.profile is None:
             raise ValueError("Compatibility requires ModelProfile")
+        if result.loaded_model is None:
+            raise ValueError("Compatibility requires LoadedModel")
         logger.info("Stage 2: Compatibility analysis")
         result.compatibility = self._compatibility.run(
             result.profile,
+            loaded_model=result.loaded_model,
             requirements=self.requirements,
         )
         logger.info("Compatibility: %s", result.compatibility.to_dict())

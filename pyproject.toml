@@ -17,7 +17,7 @@ requires-python = ">=3.11"
 
 dependencies = [
     "torch>=2.0",
-    "ultralytics>=8.4.31",
+    "ultralytics==8.4.24",
     "fvcore>=0.1.5",
     "tensorflow>=2.14",
 
@@ -42,6 +42,7 @@ dependencies = [
     "loguru>=0.7.3",
     "pycocotools>=2.0.11",
     "marshmallow>=4.3.0",
+    "opencv-python-headless>=4.8",
 ]
 
 [project.optional-dependencies]
@@ -53,15 +54,30 @@ dev = [
 
 [project.scripts]
 edge-ai-deploy = "edge_ai_deployment_pipeline.main:main"
+edge-ai-doctor = "edge_ai_deployment_pipeline.core.host_check:main"
 
 [tool.mypy]
 python_version = "3.11"
 mypy_path = "src"
+explicit_package_bases = true
 files = [
     "src/edge_ai_deployment_pipeline/core",
     "src/edge_ai_deployment_pipeline/stages",
-    "src/edge_ai_deployment_pipeline/adapters",
     "src/edge_ai_deployment_pipeline/config",
+    "src/edge_ai_deployment_pipeline/adapters/base.py",
+    "src/edge_ai_deployment_pipeline/adapters/arm",
+    "src/edge_ai_deployment_pipeline/adapters/fpga",
+    "src/edge_ai_deployment_pipeline/adapters/jetson",
+    "src/edge_ai_deployment_pipeline/adapters/mcu/adapter.py",
+    "src/edge_ai_deployment_pipeline/adapters/mcu/toolchains/base.py",
+    "src/edge_ai_deployment_pipeline/adapters/mcu/toolchains/registry.py",
+    "src/edge_ai_deployment_pipeline/adapters/mcu/toolchains/stm32n6/toolchain.py",
+    "src/edge_ai_deployment_pipeline/adapters/mcu/toolchains/stm32n6/c_projects.py",
+    "src/edge_ai_deployment_pipeline/adapters/mcu/toolchains/stm32n6/object_detection/deploy_od.py",
+]
+exclude = [
+    "src/edge_ai_deployment_pipeline/adapters/mcu/toolchains/stm32n6/object_detection/.*",
+    "src/edge_ai_deployment_pipeline/adapters/mcu/toolchains/stm32n6/image_classification/.*",
 ]
 strict = true
 ignore_missing_imports = true

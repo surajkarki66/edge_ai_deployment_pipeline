@@ -37,8 +37,9 @@ class McuToolchain(ABC):
         raw = config.get("calibration_data")
         if not raw:
             raise ValueError(
-                "calibration_data is required for STM32N6 PTQ "
-                "(directory with class subfolders or images)"
+                "calibration_data is required for STM32N6 Keras PTQ "
+                "(directory with class subfolders or images). "
+                "YOLO object detection uses yolo_export.calibration_data instead."
             )
         path = Path(str(raw))
         if not path.is_dir():

@@ -41,7 +41,7 @@ def _tflite_export_kwargs(
     elif int8:
         raise ValueError(
             "yolo_export.calibration_data (Ultralytics dataset yaml) is required "
-            "for TensorRT INT8 export"
+            "for STM32 MCU INT8 TFLite export"
         )
 
     fraction = export_cfg.get("fraction")
@@ -74,11 +74,12 @@ def export_yolo_to_tflite(
     weights = stage_weights(source_path, output_dir)
 
     logger.info(
-        "Exporting YOLO %s → TFlite (imgsz=%s, int8=%s, half=%s, device=%s)",
+        "Exporting YOLO %s → TFLite (imgsz=%s, int8=%s, device=%s)",
         weights,
         imgsz,
         export_kwargs["int8"],
-        "", "")
+        export_kwargs.get("device", "cpu"),
+    )
     model = YOLO(str(weights.resolve()))
     tflite_path = Path(str(model.export(**export_kwargs))).resolve()
 

@@ -172,6 +172,7 @@ def load_model(model_path: str) -> torch.nn.Module:
     else:
         checkpoint = torch.load(model_path, map_location=torch.device("cpu"))
         model = checkpoint["model"]
+        
         model.float()
         model.eval()
         

@@ -17,6 +17,10 @@ import time
 from pathlib import Path
 from typing import Any
 
+from edge_ai_deployment_pipeline.adapters.fpga.toolchains.ultralytics_dpu.patch_ultralytics import (
+    VITIS_ULTRALYTICS_VERSION,
+)
+
 logger = logging.getLogger(__name__)
 
 PYTORCH_IMAGE = "xilinx/vitis-ai-pytorch-cpu:latest"
@@ -26,7 +30,10 @@ CONDA_ACTIVATE_PYTORCH = (
 )
 
 _TOOLCHAIN_DIR = Path(__file__).resolve().parent
+_ULTRALYTICS_DPU_DIR = _TOOLCHAIN_DIR / "ultralytics_dpu"
 _PYTORCH_SCRIPT = _TOOLCHAIN_DIR / "scripts" / "vai_q_pytorch.py"
+_PATCH_ULTRALYTICS_SCRIPT = _ULTRALYTICS_DPU_DIR / "patch_ultralytics.py"
+_CUSTOM_LAYERS_DIR = _ULTRALYTICS_DPU_DIR / "custom_layers"
 _ARCH_DIR = _TOOLCHAIN_DIR / "architectures"
 
 ARCH_FILES = {
@@ -73,6 +80,35 @@ def _docker_available() -> bool:
     return shutil.which("docker") is not None
 
 
+def _workspace_needs_ultralytics(workspace: Path) -> bool:
+    """Ultralytics is only required when loading a YOLO checkpoint (no --model-class)."""
+    meta_path = workspace / "model_meta.json"
+    if not meta_path.is_file():
+        return False
+    import json
+
+    meta = json.loads(meta_path.read_text())
+    model_class = meta.get("model_class")
+    return model_class is None or model_class == ""
+
+
+def _stage_ultralytics_patch(workspace: Path) -> None:
+    """Copy DPU custom layers and patch script into the Vitis workspace."""
+    if not _CUSTOM_LAYERS_DIR.is_dir():
+        raise FileNotFoundError(f"Custom layers not found: {_CUSTOM_LAYERS_DIR}")
+    if not _PATCH_ULTRALYTICS_SCRIPT.is_file():
+        raise FileNotFoundError(f"Patch script not found: {_PATCH_ULTRALYTICS_SCRIPT}")
+
+    layers_dst = workspace / "custom_layers"
+    layers_dst.mkdir(parents=True, exist_ok=True)
+    for src_file in sorted(_CUSTOM_LAYERS_DIR.glob("*.py")):
+        shutil.copy2(src_file, layers_dst / src_file.name)
+
+    scripts_dir = workspace / "scripts"
+    scripts_dir.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(_PATCH_ULTRALYTICS_SCRIPT, scripts_dir / "patch_ultralytics.py")
+
+
 def run_in_vitis_container(
     *,
     workspace: Path,
@@ -80,6 +116,7 @@ def run_in_vitis_container(
     command: str,
     vitis_ai_repo: Path | None = None,
     conda_activate: str = CONDA_ACTIVATE_PYTORCH,
+    install_ultralytics: bool = False,
 ) -> None:
     """Run a shell command inside a Vitis AI Docker container."""
     workspace = workspace.resolve()
@@ -89,7 +126,11 @@ def run_in_vitis_container(
     if vitis_ai_repo and vitis_ai_repo.is_dir():
         volumes.append(f"{vitis_ai_repo.resolve()}:/Vitis-AI")
 
-    inner = f"{conda_activate} && pip install ultralytics && cd /workspace && {command}"
+    setup = conda_activate
+    if install_ultralytics:
+        setup += f" && pip install -q ultralytics=={VITIS_ULTRALYTICS_VERSION}"
+        setup += " && python scripts/patch_ultralytics.py"
+    inner = f"{setup} && cd /workspace && {command}"
     cmd = [
         "docker",
         "run",
@@ -216,6 +257,9 @@ def quantize_pytorch(
     pause_seconds: int = 5,
 ) -> Path:
     """Two-step PTQ: calib then test+deploy. Returns path to quantize_result directory."""
+    install_ultralytics = _workspace_needs_ultralytics(workspace)
+    if install_ultralytics:
+        _stage_ultralytics_patch(workspace)
     script = "python scripts/vai_q_pytorch.py"
     model_arg = f"--model_path {shlex.quote(model_filename)}"
     arch_arg = _docker_model_args(workspace)
@@ -235,6 +279,7 @@ def quantize_pytorch(
         image=image,
         command=calib_cmd,
         vitis_ai_repo=vitis_ai_repo,
+        install_ultralytics=install_ultralytics,
     )
 
     if pause_seconds > 0:
@@ -249,6 +294,7 @@ def quantize_pytorch(
         image=image,
         command=deploy_cmd,
         vitis_ai_repo=vitis_ai_repo,
+        install_ultralytics=install_ultralytics,
     )
 
     quant_dir = workspace / "quantize_result"

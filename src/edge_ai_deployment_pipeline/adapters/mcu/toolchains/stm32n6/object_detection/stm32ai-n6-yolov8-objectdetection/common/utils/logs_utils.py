@@ -62,14 +62,26 @@ def mlflow_ini(cfg: DictConfig = None) -> None:
     Returns:
         None
     """
-    mlflow.set_tracking_uri(cfg['mlflow']['uri'])
-    experiment_name = cfg.general.project_name
+    uri = str(cfg["mlflow"]["uri"])
+    if uri.startswith("sqlite://"):
+        mlflow.set_tracking_uri(uri)
+    elif uri.startswith("file://"):
+        mlflow.set_tracking_uri(uri)
+    else:
+        mlflow.set_tracking_uri("file://" + os.path.abspath(uri))
+
+    general = getattr(cfg, "general", None)
+    experiment_name = (
+        getattr(general, "project_name", None) if general is not None else None
+    ) or "edge_ai_deploy"
     mlflow.set_experiment(experiment_name)
+
     run_name = HydraConfig.get().runtime.output_dir.split(os.sep)[-1]
+    # Explicit start_run avoids Hydra/ClearML autostart races (Run not found).
+    mlflow.start_run(run_name=run_name)
     mlflow.set_tag("mlflow.runName", run_name)
     params = {"operation_mode": cfg.operation_mode}
     mlflow.log_params(params)
-#    mlflow.tensorflow.autolog(log_models=False)
     mlflow.keras.autolog(log_models=False)
 
 

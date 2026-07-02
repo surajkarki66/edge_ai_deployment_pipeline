@@ -6,6 +6,7 @@ from pathlib import Path
 
 from edge_ai_deployment_pipeline.adapters.base import PlatformAdapter
 from edge_ai_deployment_pipeline.config.catalogue import PlatformCatalogue
+from edge_ai_deployment_pipeline.config.framework_compat import framework_platform_incompatibility_reason
 from edge_ai_deployment_pipeline.config.task import apply_task_to_config, resolve_task
 from edge_ai_deployment_pipeline.core.types import (
     CvTask,
@@ -88,7 +89,7 @@ class DeploymentStage:
         platform_config_path: str | Path | None = None,
         *,
         input_shape: tuple[int, int, int] | None = None,
-        requirements: UserRequirements | None = None,
+        requirements: UserRequirements,
     ) -> DeploymentArtifact:
         board_id = selected.platform_id
         config = self._load_board_config(
@@ -97,7 +98,7 @@ class DeploymentStage:
             toolchain=selected.toolchain,
             loaded=loaded,
             input_shape=input_shape,
-            task_override=requirements.task if requirements else None,
+            task_override=requirements.task,
         )
         adapter_id = str(config.get("adapter_id", selected.platform_family))
 
@@ -110,27 +111,14 @@ class DeploymentStage:
             tc_note,
             type(adapter).__name__,
         )
-        if adapter_id == "mcu" and loaded.framework not in (FrameworkTag.KERAS, FrameworkTag.ULTRALYTICS):
+        framework_reason = framework_platform_incompatibility_reason(
+            loaded.framework,
+            requirements.task,
+            adapter_id,
+        )
+        if framework_reason is not None:
             raise ValueError(
-                f"MCU deployment ({board_id}) supports Keras (.keras/.h5) "
-                f"and Ultralytics (.pt) models. "
-                f"Got {loaded.framework.value} model: {loaded.source_path}"
-            )
-        if loaded.framework == FrameworkTag.ULTRALYTICS:
-            if resolve_task(config) != CvTask.OBJECT_DETECTION:
-                raise ValueError(
-                    f"Ultralytics deployment ({board_id}) requires "
-                    f"--task object_detection (got {resolve_task(config).value})"
-                )
-            if adapter_id not in ("arm", "jetson", "mcu", "fpga"):
-                raise ValueError(
-                    f"Ultralytics models are supported on ARM (ncnn), Jetson (tensorrt), MCU, and FPGA; "
-                    f"got adapter '{adapter_id}'"
-                )
-        if adapter_id == "fpga" and loaded.framework not in (FrameworkTag.PYTORCH, FrameworkTag.ULTRALYTICS):
-            raise ValueError(
-                f"FPGA deployment ({board_id}) requires a PyTorch or Ultralytics model (.pt). "
-                f"Got {loaded.framework.value} model: {loaded.source_path}"
+                f"Cannot deploy {loaded.framework.value} model to {board_id}: {framework_reason}"
             )
 
         if not adapter.validate(loaded.model, config):

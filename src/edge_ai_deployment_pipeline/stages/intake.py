@@ -23,7 +23,8 @@ class IntakeStage:
         *,
         model_class: str | None = None,
         model_kwargs: dict[str, Any] | None = None,
-        task: CvTask | None = None,
+        task: CvTask,
+        patch_ultralytics_dpu: bool = False,
     ) -> LoadedModel:
         path = Path(model_path)
         
@@ -36,7 +37,7 @@ class IntakeStage:
                     "Object detection requires an Ultralytics model (.pt or .pth), "
                     f"got: {path}"
                 )
-            return self._load_ultralytics(path)
+            return self._load_ultralytics(path, patch_ultralytics_dpu=patch_ultralytics_dpu)
 
         if path.suffix.lower() in {".keras", ".h5"}:
             return self._load_keras(path)
@@ -49,9 +50,9 @@ class IntakeStage:
 
         raise ValueError(f"Unsupported model format: {path}")
 
-    def _load_ultralytics(self, path: Path) -> LoadedModel:
+    def _load_ultralytics(self, path: Path, *, patch_ultralytics_dpu: bool = False) -> LoadedModel:
         logger.debug("Loading Ultralytics model from %s", path)
-        model = load_yolo(path)
+        model = load_yolo(path, patch_dpu_layers=patch_ultralytics_dpu)
         return LoadedModel(
             framework=FrameworkTag.ULTRALYTICS,
             source_path=str(path.resolve()),

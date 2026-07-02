@@ -5,11 +5,13 @@ import logging
 from pathlib import Path
 
 from edge_ai_deployment_pipeline.config.catalogue import DEFAULT_CATALOGUE_PATH, PlatformCatalogue
+from edge_ai_deployment_pipeline.config.framework_compat import framework_platform_incompatibility_reason
 from edge_ai_deployment_pipeline.config.task import apply_task_to_config
 from edge_ai_deployment_pipeline.core.types import (
     CompatibilityReport,
     CompatibilityStatus,
     CvTask,
+    LoadedModel,
     ModelProfile,
     PlatformCompatResult,
     PlatformConfig,
@@ -43,6 +45,19 @@ def _get_layer_check_mode(spec: PlatformConfig) -> str:
     return "denylist"
 
 
+def unsupported_layer_ratio(
+    unsupported: list[str], inventory: dict[str, int]
+) -> float:
+    """Fraction of model layers (by count) whose types are unsupported."""
+    if not unsupported:
+        return 0.0
+    total = sum(inventory.values())
+    if total <= 0:
+        return 1.0
+    unsupported_count = sum(inventory.get(layer, 0) for layer in unsupported)
+    return unsupported_count / total
+
+
 class CompatibilityStage:
     """Run supported-operation and unsupported-operation checks for every board × toolchain."""
 
@@ -53,29 +68,45 @@ class CompatibilityStage:
         self,
         profile: ModelProfile,
         *,
-        requirements: UserRequirements | None = None,
+        loaded_model: LoadedModel,
+        requirements: UserRequirements,
     ) -> CompatibilityReport:
         catalogue = PlatformCatalogue.load(self._config_path)
         board_ids = catalogue.board_ids()
-        task_override = requirements.task if requirements else None
+        task_override = requirements.task
 
         results: list[PlatformCompatResult] = []
         for board_id in board_ids:
             family = catalogue.platform_family(board_id)
+            adapter_id = catalogue.adapter_id(board_id)
             for toolchain in catalogue.list_toolchains(board_id):
                 spec = catalogue.resolve_board_config(board_id, toolchain)
                 apply_task_to_config(spec, override=task_override)
                 results.append(
-                    self._analyze_board(board_id, toolchain, spec, family, profile)
+                    self._analyze_board(
+                        board_id,
+                        toolchain,
+                        spec,
+                        family,
+                        adapter_id,
+                        loaded_model,
+                        requirements.task,
+                        profile,
+                    )
                 )
 
-        viable_boards: set[str] = set()
-        for r in results:
-            if r.status != CompatibilityStatus.INCOMPATIBLE:
-                viable_boards.add(r.platform_id)
+        all_boards = sorted({r.platform_id for r in results})
+        deployable_boards = sorted(
+            {
+                r.platform_id
+                for r in results
+                if r.status != CompatibilityStatus.INCOMPATIBLE
+            }
+        )
         return CompatibilityReport(
             results=results,
-            viable_platform_ids=sorted(viable_boards),
+            viable_platform_ids=all_boards,
+            deployable_platform_ids=deployable_boards,
         )
 
     def _analyze_board(
@@ -84,40 +115,36 @@ class CompatibilityStage:
         toolchain: str,
         board_spec: PlatformConfig,
         platform_family: str,
+        adapter_id: str,
+        loaded_model: LoadedModel,
+        task: CvTask,
         profile: ModelProfile,
     ) -> PlatformCompatResult:
-        if board_spec.get("task") == CvTask.OBJECT_DETECTION.value and platform_family in (
-            "arm",
-            "jetson",
-        ):
-            export_note = (
-                "Ultralytics TensorRT export"
-                if platform_family == "jetson"
-                else "Ultralytics NCNN export"
-            )
-            return PlatformCompatResult(
-                platform_id=board_id,
-                platform_family=platform_family,
-                toolchain=toolchain,
-                status=CompatibilityStatus.FULLY_COMPATIBLE,
-                unsupported_operations=[],
-                notes=f"YOLO object detection uses {export_note}; layer checks not applied",
-            )
-
+        framework_reason = framework_platform_incompatibility_reason(
+            loaded_model.framework,
+            task,
+            adapter_id,
+        )
         unsupported = self._collect_unsupported_operations(board_spec, profile)
-        status = self._compatibility_status(unsupported, profile)
+        layer_status, layer_ratio = self._compatibility_status(unsupported, profile)
+        final_ratio = 1.0 if framework_reason is not None else layer_ratio
 
         notes_parts = [f"toolchain={toolchain}"]
+        if framework_reason is not None:
+            notes_parts.append(framework_reason)
         if unsupported:
             notes_parts.append(f"unsupported operations: {', '.join(unsupported)}")
+        if layer_ratio > 0:
+            notes_parts.append(f"unsupported layer share: {layer_ratio:.1%}")
 
-        if status == CompatibilityStatus.INCOMPATIBLE:
+        if framework_reason is not None or layer_status == CompatibilityStatus.INCOMPATIBLE:
             return PlatformCompatResult(
                 platform_id=board_id,
                 platform_family=platform_family,
                 toolchain=toolchain,
                 status=CompatibilityStatus.INCOMPATIBLE,
                 unsupported_operations=unsupported,
+                unsupported_layer_ratio=final_ratio,
                 notes="; ".join(notes_parts),
             )
 
@@ -125,8 +152,9 @@ class CompatibilityStage:
             platform_id=board_id,
             platform_family=platform_family,
             toolchain=toolchain,
-            status=status,
+            status=layer_status,
             unsupported_operations=unsupported,
+            unsupported_layer_ratio=final_ratio,
             notes="; ".join(notes_parts) if unsupported else "Compatible",
         )
 
@@ -180,15 +208,13 @@ class CompatibilityStage:
 
     def _compatibility_status(
         self, unsupported: list[str], profile: ModelProfile
-    ) -> CompatibilityStatus:
+    ) -> tuple[CompatibilityStatus, float]:
+        ratio = unsupported_layer_ratio(unsupported, profile.layer_type_inventory)
         if not unsupported:
-            return CompatibilityStatus.FULLY_COMPATIBLE
-
-        ratio = len(unsupported) / max(len(profile.layer_type_inventory), 1)
+            return CompatibilityStatus.FULLY_COMPATIBLE, 0.0
         if ratio > 0.5:
-            return CompatibilityStatus.INCOMPATIBLE
-
-        return CompatibilityStatus.PARTIALLY_COMPATIBLE
+            return CompatibilityStatus.INCOMPATIBLE, ratio
+        return CompatibilityStatus.PARTIALLY_COMPATIBLE, ratio
 
     def _layer_supported(self, layer: str, supported: set[str]) -> bool:
         return layer in supported or self._fuzzy_match(layer, supported)

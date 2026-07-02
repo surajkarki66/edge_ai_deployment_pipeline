@@ -2,7 +2,6 @@
   "platforms": {
     "jetson": {
       "adapter_id": "jetson",
-      "task": "object_detection",
       "latency_type": "medium",
       "default_toolchain": "tensorrt",
       "toolchains": {
@@ -52,7 +51,6 @@
     },
     "fpga": {
       "adapter_id": "fpga",
-      "task": "object_detection",
       "latency_type": "ultra_low",
       "default_toolchain": "vitis_ai",
       "compile_flags": {},
@@ -136,7 +134,6 @@
     },
     "mcu": {
       "adapter_id": "mcu",
-      "task": "object_detection",
       "latency_type": "low",
       "default_toolchain": "stm32n6",
       "toolchains": {
@@ -148,11 +145,16 @@
           "aspect_ratio": "crop",
           "optimization": "balanced",
           "calibration_data": "data/calibration",
+          "stm32n6_repo_refs": {
+            "image_classification": "v2.3.0",
+            "object_detection": "v2.3.0"
+          },
           "yolo_export": {
             "format": "tflite",
             "int8": true,
             "calibration_data": "data/calibration/data.yaml",
-            "model_name": "yolov11",
+            "model_name": "yolov8",
+            "model_type": "yolov8n",
             "quantization_type": "per_tensor"
           },
           "supported_operations": [
@@ -217,7 +219,6 @@
     },
     "arm": {
       "adapter_id": "arm",
-      "task": "object_detection",
       "latency_type": "moderate",
       "default_toolchain": "ncnn",
       "compile_flags": {
