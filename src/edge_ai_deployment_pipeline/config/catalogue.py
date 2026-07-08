@@ -116,21 +116,48 @@ class PlatformCatalogue:
         return merged
 
 
+def _fpga_patch_ultralytics_enabled(
+    catalogue: PlatformCatalogue,
+    *,
+    board_id: str | None = None,
+) -> bool:
+    """Read ``patch_ultralytics_dpu`` from the resolved Vitis-AI toolchain config."""
+    if board_id is not None:
+        if board_id not in catalogue.board_ids():
+            return False
+        if catalogue.adapter_id(board_id) != "fpga":
+            return False
+        cfg = catalogue.resolve_board_config(board_id, "vitis_ai")
+        return bool(cfg.get("patch_ultralytics_dpu", True))
+
+    for candidate_board_id in catalogue.board_ids():
+        if catalogue.adapter_id(candidate_board_id) != "fpga":
+            continue
+        cfg = catalogue.resolve_board_config(candidate_board_id, "vitis_ai")
+        return bool(cfg.get("patch_ultralytics_dpu", True))
+    return True
+
+
 def targets_vitis_ai_flow(
     *,
     board_id: str | None = None,
     toolchain: str | None = None,
+    latency_type: str | None = None,
     platform_config_path: str | Path | None = None,
 ) -> bool:
-    """Return True when the pipeline is explicitly targeting the Vitis-AI FPGA flow."""
+    """Return True when host-side Ultralytics DPU patching should run."""
+    catalogue = PlatformCatalogue.load(platform_config_path)
+
     if toolchain == "vitis_ai":
-        return True
-    if toolchain is not None:
-        return False
-    if board_id is None:
+        return _fpga_patch_ultralytics_enabled(catalogue, board_id=board_id)
+
+    if toolchain is not None and toolchain != "vitis_ai":
         return False
 
-    catalogue = PlatformCatalogue.load(platform_config_path)
-    if board_id not in catalogue.board_ids():
-        return False
-    return catalogue.adapter_id(board_id) == "fpga"
+    if board_id is not None:
+        return _fpga_patch_ultralytics_enabled(catalogue, board_id=board_id)
+
+    if latency_type == "ultra_low":
+        return _fpga_patch_ultralytics_enabled(catalogue)
+
+    return False

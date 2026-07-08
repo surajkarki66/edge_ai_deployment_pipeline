@@ -85,8 +85,9 @@ def load_yolo(model_path: str | Path, *, patch_dpu_layers: bool = False) -> Any:
     if not patch_dpu_layers and checkpoint_needs_dpu_custom_layers(path):
         raise ValueError(
             f"Checkpoint {path.name} was saved with Vitis-AI DPU custom Ultralytics "
-            "layers. Re-run with --board-id zcu104 (or another FPGA board) or "
-            "--toolchain vitis_ai so those layers are patched before loading."
+            "layers. Re-run with --latency-type ultra_low, --board-id zcu104 "
+            "(or another FPGA board), or --toolchain vitis_ai so those layers are "
+            "patched before loading (see patch_ultralytics_dpu in platforms.json)."
         )
 
     if patch_dpu_layers:

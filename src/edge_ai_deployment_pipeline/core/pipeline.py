@@ -114,6 +114,7 @@ class Pipeline:
         patch_ultralytics_dpu = targets_vitis_ai_flow(
             board_id=self.board_id,
             toolchain=self.requirements.toolchain,
+            latency_type=self.requirements.latency_type.value,
             platform_config_path=self.platform_config_path,
         )
         if patch_ultralytics_dpu:

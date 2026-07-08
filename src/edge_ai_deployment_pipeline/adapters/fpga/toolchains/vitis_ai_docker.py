@@ -117,6 +117,7 @@ def run_in_vitis_container(
     vitis_ai_repo: Path | None = None,
     conda_activate: str = CONDA_ACTIVATE_PYTORCH,
     install_ultralytics: bool = False,
+    patch_ultralytics: bool = False,
 ) -> None:
     """Run a shell command inside a Vitis AI Docker container."""
     workspace = workspace.resolve()
@@ -129,6 +130,7 @@ def run_in_vitis_container(
     setup = conda_activate
     if install_ultralytics:
         setup += f" && pip install -q ultralytics=={VITIS_ULTRALYTICS_VERSION}"
+    if install_ultralytics and patch_ultralytics:
         setup += " && python scripts/patch_ultralytics.py"
     inner = f"{setup} && cd /workspace && {command}"
     cmd = [
@@ -254,11 +256,12 @@ def quantize_pytorch(
     config_file: str | None = None,
     image: str = PYTORCH_IMAGE,
     vitis_ai_repo: Path | None = None,
+    patch_ultralytics_dpu: bool = True,
     pause_seconds: int = 5,
 ) -> Path:
     """Two-step PTQ: calib then test+deploy. Returns path to quantize_result directory."""
-    install_ultralytics = _workspace_needs_ultralytics(workspace)
-    if install_ultralytics:
+    needs_ultralytics = _workspace_needs_ultralytics(workspace)
+    if needs_ultralytics and patch_ultralytics_dpu:
         _stage_ultralytics_patch(workspace)
     script = "python scripts/vai_q_pytorch.py"
     model_arg = f"--model_path {shlex.quote(model_filename)}"
@@ -279,7 +282,8 @@ def quantize_pytorch(
         image=image,
         command=calib_cmd,
         vitis_ai_repo=vitis_ai_repo,
-        install_ultralytics=install_ultralytics,
+        install_ultralytics=needs_ultralytics,
+        patch_ultralytics=needs_ultralytics and patch_ultralytics_dpu,
     )
 
     if pause_seconds > 0:
@@ -294,7 +298,8 @@ def quantize_pytorch(
         image=image,
         command=deploy_cmd,
         vitis_ai_repo=vitis_ai_repo,
-        install_ultralytics=install_ultralytics,
+        install_ultralytics=needs_ultralytics,
+        patch_ultralytics=needs_ultralytics and patch_ultralytics_dpu,
     )
 
     quant_dir = workspace / "quantize_result"
@@ -362,6 +367,7 @@ def export_pytorch_to_dpu(
 
     vitis_repo = resolve_vitis_ai_repo(config)
     image = str(config.get("vitis_ai_image", PYTORCH_IMAGE))
+    patch_ultralytics_dpu = bool(config.get("patch_ultralytics_dpu", True))
     arch_src = architecture_json(dpu_target)
     arch_in_workspace = workspace / "architectures" / arch_src.name
     repo_mount = vitis_repo if vitis_repo.is_dir() else None
@@ -384,6 +390,7 @@ def export_pytorch_to_dpu(
         config_file=config.get("quant_config_file"),
         image=image,
         vitis_ai_repo=repo_mount,
+        patch_ultralytics_dpu=patch_ultralytics_dpu,
         pause_seconds=int(config.get("quant_pause_seconds", 5)),
     )
 

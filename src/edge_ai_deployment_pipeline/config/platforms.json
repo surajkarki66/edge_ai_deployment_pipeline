@@ -105,6 +105,7 @@
             "Upsample"
           ],
           "quantization": "int8",
+          "patch_ultralytics_dpu": true,
           "dpu_arch": "DPUCZDX8G",
           "dpu_target": "DPUCZDX8G_ISA1_B4096",
           "dpu_silicon_family": "Zynq UltraScale+ MPSoC",
