@@ -58,7 +58,7 @@ def unsupported_layer_ratio(
     return unsupported_count / total
 
 
-class CompatibilityStage:
+class CompatibilityStep:
     """Run supported-operation and unsupported-operation checks for every board × toolchain."""
 
     def __init__(self, platform_config_path: str | Path | None = None) -> None:

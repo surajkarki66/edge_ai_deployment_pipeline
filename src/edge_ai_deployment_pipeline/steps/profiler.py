@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 BENCHMARK_ITERATIONS = 10
 
 
-class ProfilerStage:
+class ProfilerStep:
     """Extract FLOPs, layer inventory, and CPU latency."""
 
     def __init__(self, input_shape: tuple[int, int, int]) -> None:

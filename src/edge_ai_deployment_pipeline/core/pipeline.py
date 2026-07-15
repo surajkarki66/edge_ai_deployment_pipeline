@@ -18,16 +18,16 @@ from edge_ai_deployment_pipeline.core.types import (
     SelectedPlatform,
     UserRequirements,
 )
-from edge_ai_deployment_pipeline.stages.compatibility import CompatibilityStage
-from edge_ai_deployment_pipeline.stages.constraint_check import ConstraintCheckStage
-from edge_ai_deployment_pipeline.stages.deployment import DeploymentStage
-from edge_ai_deployment_pipeline.stages.intake import IntakeStage
-from edge_ai_deployment_pipeline.stages.profiler import ProfilerStage
+from edge_ai_deployment_pipeline.steps.compatibility import CompatibilityStep
+from edge_ai_deployment_pipeline.steps.constraint_check import ConstraintCheckStep
+from edge_ai_deployment_pipeline.steps.deployment import DeploymentStep
+from edge_ai_deployment_pipeline.steps.intake import IntakeStep
+from edge_ai_deployment_pipeline.steps.profiler import ProfilerStep
 
 logger = logging.getLogger(__name__)
 
 
-class PipelineStage(str, Enum):
+class PipelineStep(str, Enum):
     INTAKE = "intake"
     PROFILER = "profiler"
     COMPATIBILITY = "compatibility"
@@ -64,11 +64,11 @@ class Pipeline:
         self.model_kwargs = model_kwargs
         self.run_id = run_id
 
-        self._intake = IntakeStage()
-        self._profiler = ProfilerStage(input_shape)
-        self._compatibility = CompatibilityStage(platform_config_path)
-        self._constraint = ConstraintCheckStage(platform_config_path)
-        self._deployment = DeploymentStage(self.output_dir)
+        self._intake = IntakeStep()
+        self._profiler = ProfilerStep(input_shape)
+        self._compatibility = CompatibilityStep(platform_config_path)
+        self._constraint = ConstraintCheckStep(platform_config_path)
+        self._deployment = DeploymentStep(self.output_dir)
 
     def run(
         self,
@@ -78,7 +78,7 @@ class Pipeline:
         compatibility: CompatibilityReport | None = None,
         selected_platform: SelectedPlatform | None = None,
         artifact: DeploymentArtifact | None = None,
-        stop_after: PipelineStage | None = None,
+        stop_after: PipelineStep | None = None,
     ) -> PipelineResult:
         result = PipelineResult(
             loaded_model=loaded_model,
@@ -91,16 +91,16 @@ class Pipeline:
         )
 
         self._run_intake(result)
-        if stop_after == PipelineStage.INTAKE:
+        if stop_after == PipelineStep.INTAKE:
             return result
         self._run_profiler(result)
-        if stop_after == PipelineStage.PROFILER:
+        if stop_after == PipelineStep.PROFILER:
             return result
         self._run_compatibility(result)
-        if stop_after == PipelineStage.COMPATIBILITY:
+        if stop_after == PipelineStep.COMPATIBILITY:
             return result
         self._run_constraint(result)
-        if stop_after == PipelineStage.CONSTRAINT:
+        if stop_after == PipelineStep.CONSTRAINT:
             return result
         self._run_board_selection(result)
         self._run_deployment(result)
@@ -110,7 +110,7 @@ class Pipeline:
         if result.loaded_model is not None:
             logger.info("Skipping intake — LoadedModel already provided")
             return
-        logger.info("Stage 1a: Model intake — %s", self.model_path)
+        logger.info("Step 1a: Model intake — %s", self.model_path)
         patch_ultralytics_dpu = targets_vitis_ai_flow(
             board_id=self.board_id,
             toolchain=self.requirements.toolchain,
@@ -134,7 +134,7 @@ class Pipeline:
             return
         if result.loaded_model is None:
             raise ValueError("Profiler requires LoadedModel; run intake first or pass loaded_model")
-        logger.info("Stage 1b: Model profiling (input_shape=%s)", self.input_shape)
+        logger.info("Step 1b: Model profiling (input_shape=%s)", self.input_shape)
         result.profile = self._profiler.run(result.loaded_model)
         logger.info("Model profile: %s", result.profile.to_dict())
 
@@ -146,7 +146,7 @@ class Pipeline:
             raise ValueError("Compatibility requires ModelProfile")
         if result.loaded_model is None:
             raise ValueError("Compatibility requires LoadedModel")
-        logger.info("Stage 2: Compatibility analysis")
+        logger.info("Step 2: Compatibility analysis")
         result.compatibility = self._compatibility.run(
             result.profile,
             loaded_model=result.loaded_model,
@@ -160,7 +160,7 @@ class Pipeline:
             return
         if result.profile is None or result.compatibility is None:
             raise ValueError("Constraint check requires ModelProfile and CompatibilityReport")
-        logger.info("Stage 3: Constraint checking")
+        logger.info("Step 3: Constraint checking")
         selection = self._constraint.run(
             result.profile,
             result.compatibility,
@@ -199,7 +199,7 @@ class Pipeline:
             return
         if result.loaded_model is None or result.selected_platform is None:
             raise ValueError("Deployment requires LoadedModel and SelectedPlatform")
-        logger.info("Stage 4: Deployment artifact generation")
+        logger.info("Step 4: Deployment artifact generation")
         result.artifact = self._deployment.run(
             result.loaded_model,
             result.selected_platform,

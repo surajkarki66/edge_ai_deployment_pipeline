@@ -62,7 +62,7 @@ mypy_path = "src"
 explicit_package_bases = true
 files = [
     "src/edge_ai_deployment_pipeline/core",
-    "src/edge_ai_deployment_pipeline/stages",
+    "src/edge_ai_deployment_pipeline/steps",
     "src/edge_ai_deployment_pipeline/config",
     "src/edge_ai_deployment_pipeline/adapters/base.py",
     "src/edge_ai_deployment_pipeline/adapters/arm",

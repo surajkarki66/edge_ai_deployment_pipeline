@@ -12,7 +12,7 @@ from edge_ai_deployment_pipeline.core.yolo_loader import load_yolo
 logger = logging.getLogger(__name__)
 
 
-class IntakeStage:
+class IntakeStep:
     """Accept model exports and emit a LoadedModel."""
 
     SUPPORTED_EXTENSIONS = {".pt", ".pth", ".keras", ".h5"}

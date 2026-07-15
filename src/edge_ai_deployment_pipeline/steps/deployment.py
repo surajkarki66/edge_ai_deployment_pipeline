@@ -75,7 +75,7 @@ def _get_platform_adapter(adapter_id: str) -> PlatformAdapter:
     )
 
 
-class DeploymentStage:
+class DeploymentStep:
     """Dispatch to the platform-family adapter for the selected board."""
 
     def __init__(self, output_dir: str | Path) -> None:

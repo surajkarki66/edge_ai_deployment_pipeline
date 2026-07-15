@@ -22,7 +22,7 @@ logger = logging.getLogger(__name__)
 _COMPAT_MAX_PENALTY = 100.0
 
 
-class ConstraintCheckStage:
+class ConstraintCheckStep:
     """Score all boards; pick the best toolchain per board, then rank."""
 
     def __init__(self, platform_config_path: str | Path | None = None) -> None:
