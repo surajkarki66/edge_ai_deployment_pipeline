@@ -5,7 +5,7 @@
 tensorflow==2.15.1
 tf_keras==2.15.1
 keras==2.15.0
-torch==2.10.0
+torch==2.13.0
 torchvision==0.25.0
 
 # Ultralytics YOLOv8
