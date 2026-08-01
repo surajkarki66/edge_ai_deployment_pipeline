@@ -10,16 +10,14 @@ Requires **Python 3.11+**.
 
 End-to-end flow (all steps run in order):
 
-
-| Step                | Purpose                                                                                                                                       |
-| ------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| Step                      | Purpose                                                                                                                                                           |
+| ------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Intake**          | Load Keras (`.keras`/`.h5`), PyTorch **weights** (`.pt`/`.pth`) + `--model-class`, or Ultralytics YOLO (`.pt`) with `--task object_detection` |
-| **Profiler**        | FLOPs, parameter count, memory estimates, layer inventory, CPU latency                                                                        |
-| **Compatibility**   | Match layer types against each board's toolchain allowlist/denylist                                                                           |
-| **Constraint**      | Score viable boards on power, cost, and memory; rank candidates                                                                               |
-| **Board selection** | Pick a ranked board (interactive prompt, `--board-id`, or `--auto-select`)                                                                    |
-| **Deployment**      | Emit a deployable artifact for the selected target                                                                                            |
-
+| **Profiler**        | FLOPs, parameter count, memory estimates, layer inventory, CPU latency                                                                                            |
+| **Compatibility**   | Match layer types against each board's toolchain allowlist/denylist                                                                                               |
+| **Constraint**      | Score viable boards on power, cost, and memory; rank candidates                                                                                                   |
+| **Board selection** | Pick a ranked board (interactive prompt,`--board-id`, or `--auto-select`)                                                                                     |
+| **Deployment**      | Emit a deployable artifact for the selected target                                                                                                                |
 
 On success the CLI prints a **JSON summary** to stdout (including `rankings`, `run_id`, and the selected board) and writes deployment artifacts under `data/artifacts/<run-id>/<board-id>/` (override base path with `-o`).
 
@@ -29,26 +27,19 @@ Profiling, compatibility, and constraint checking run on CPU. **Deployment** req
 
 Configured in bundled `src/edge_ai_deployment_pipeline/config/platforms.json`:
 
-
-| Family | Board                     | Toolchain | Latency type |
-| ------ | ------------------------- | --------- | ------------ |
-| Jetson | `jetson_nano`, `agx_orin` | TensorRT  | `medium`     |
-| FPGA   | `zcu104`                  | Vitis AI  | `ultra_low`  |
-| MCU    | `stm32n6570_dk`           | STM32N6   | `low`        |
-| ARM    | `raspberry_pi_4`          | ncnn      | `moderate`   |
-
+| Family | Board                         | Toolchain | Latency type |
+| ------ | ----------------------------- | --------- | ------------ |
+| Jetson | `jetson_nano`, `agx_orin` | TensorRT  | `medium`   |
 
 Override with `--platform-config path/to/platforms.json`. Each board must declare `available_toolchains`.
 
 ## Model formats
 
-
-| Model format                                        | `--task`               | Jetson | ARM | FPGA | MCU |
-| --------------------------------------------------- | ---------------------- | ------ | --- | ---- | --- |
+| Model format                                              | `--task`               | Jetson | ARM | FPGA | MCU |
+| --------------------------------------------------------- | ------------------------ | ------ | --- | ---- | --- |
 | PyTorch weights (`.pt`/`.pth` + `--model-class`)    | `image_classification` | Yes    | Yes | Yes  | No  |
-| Keras full model (`.keras` / `.h5`)                 | `image_classification` | Yes    | Yes | No   | Yes |
+| Keras full model (`.keras` / `.h5`)                   | `image_classification` | Yes    | Yes | No   | Yes |
 | Ultralytics YOLO (`.pt`/`.pth`, no `--model-class`) | `object_detection`     | Yes    | Yes | Yes  | Yes |
-
 
 Keras requires a **full saved model** (architecture + weights). Weights-only `.h5` files are not supported. PyTorch intake is **weights + architecture only**.
 
@@ -64,15 +55,14 @@ Do **not** use full-model pickle. It is not supported.
 
 `--model-class` formats:
 
-- `data/model_class/cifar_net.py:Net` — path to a `.py` file
+- `data/model_class/mnist_net.py:Net` — path to a `.py` file
 - `mypackage.models:Net` — importable Python module
 
 Optional constructor args: `--model-kwargs '{"num_classes": 10}'`.
 
-**Example network** (`data/model_class/cifar_net.py`):
+**Example network** (`data/model_class/mnist_net.py`):
 
 ```python
-import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
@@ -80,20 +70,33 @@ import torch.nn.functional as F
 class Net(nn.Module):
     def __init__(self):
         super().__init__()
-        self.conv1 = nn.Conv2d(3, 6, 5)
-        self.pool = nn.MaxPool2d(2, 2)
-        self.conv2 = nn.Conv2d(6, 16, 5)
-        self.fc1 = nn.Linear(16 * 5 * 5, 120)
-        self.fc2 = nn.Linear(120, 84)
-        self.fc3 = nn.Linear(84, 10)
+    self.conv1 = nn.Conv2d(in_channels=1, out_channels=16, kernel_size=3, padding=1)
+    self.bn1 = nn.BatchNorm2d(num_features=16)
+    self.conv2 = nn.Conv2d(in_channels=16, out_channels=16, kernel_size=3, padding=1)
+    self.bn2 = nn.BatchNorm2d(num_features=16)
+    self.pool1 = nn.MaxPool2d(kernel_size=2, stride=2)
+    self.drop1 = nn.Dropout2d(p=0.1)
+    self.conv3 = nn.Conv2d(in_channels=16, out_channels=32, kernel_size=3, padding=1)
+    self.bn3 = nn.BatchNorm2d(num_features=32)
+    self.conv4 = nn.Conv2d(in_channels=32, out_channels=32, kernel_size=3, padding=1)
+    self.bn4 = nn.BatchNorm2d(num_features=32)
+    self.pool2 = nn.MaxPool2d(kernel_size=2, stride=2)
+    self.drop2 = nn.Dropout2d(p=0.1)
+    self.conv5 = nn.Conv2d(in_channels=32, out_channels=16, kernel_size=1, padding=0)
+    self.bn5 = nn.BatchNorm2d(num_features=16)
+    self.conv6 = nn.Conv2d(in_channels=16, out_channels=16, kernel_size=3, padding=1)
+    self.bn6 = nn.BatchNorm2d(num_features=16)
+    self.gap1 = nn.AdaptiveAvgPool2d(output_size=(1, 1))
+    self.fc1 = nn.Linear(in_features=16, out_features=10)
 
     def forward(self, x):
-        x = self.pool(F.relu(self.conv1(x)))
-        x = self.pool(F.relu(self.conv2(x)))
-        x = torch.flatten(x, 1)
-        x = F.relu(self.fc1(x))
-        x = F.relu(self.fc2(x))
-        return self.fc3(x)
+    x = self.drop1(self.pool1(self.bn2(F.relu(self.conv2(self.bn1(F.relu(self.conv1(x))))))))
+    x = self.drop2(self.pool2(self.bn4(F.relu(self.conv4(self.bn3(F.relu(self.conv3(x))))))))
+    x = self.bn6(F.relu(self.conv6(self.bn5(F.relu(self.conv5(x))))))
+    x = self.gap1(x)
+    x = x.view(-1, 16)
+    x = self.fc1(x)
+    return F.log_softmax(x, dim=1)
 ```
 
 **After training:**
@@ -101,7 +104,7 @@ class Net(nn.Module):
 ```python
 net = Net()
 # ... train ...
-torch.save(net.state_dict(), "cifar10.pt")
+torch.save(net.state_dict(), "mnist_model.pt")
 ```
 
 ### Keras
@@ -112,21 +115,17 @@ Load a full saved model (architecture + weights): `.keras` or `.h5` (see table a
 
 For `--task object_detection`, pass an Ultralytics checkpoint (`.pt` or `.pth`) **without** `--model-class`. The pipeline loads it via the `ultralytics` package (pinned to **8.4.24** in `pyproject.toml`).
 
-
-| Target               | Host load behaviour                                                                                                                                                                                                                                         |
-| -------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **FPGA**             | When you pass `--board-id zcu104` or `--toolchain vitis_ai`, the pipeline patches `ultralytics/nn/modules/head.py` and `block.py` with DPU-compatible layers **before** loading (same patch applied again inside the Vitis-AI Docker container before PTQ). |
-| **MCU, Jetson, ARM** | Stock Ultralytics modules — no DPU patch on the host.                                                                                                                                                                                                       |
-
+| Target                     | Host load behaviour                                                                                                                                                                                                                                                      |
+| -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **FPGA**             | When you pass`--board-id zcu104` or `--toolchain vitis_ai`, the pipeline patches `ultralytics/nn/modules/head.py` and `block.py` with DPU-compatible layers **before** loading (same patch applied again inside the Vitis-AI Docker container before PTQ). |
+| **MCU, Jetson, ARM** | Stock Ultralytics modules — no DPU patch on the host.                                                                                                                                                                                                                   |
 
 **FPGA: train with DPU-compatible forks first.** Stock Ultralytics checkpoints for **YOLOv8**, **YOLOv11**, and **YOLOv26** cannot be compiled to FPGA directly — the Vitis AI DPU toolchain reports **unsupported layers** during compatibility. Retrain (or fine-tune) with the forks below, then deploy the resulting `.pt` checkpoint through this pipeline:
 
-
-| YOLO variant     | Training repository                                                                     |
-| ---------------- | --------------------------------------------------------------------------------------- |
+| YOLO variant     | Training repository                                                                    |
+| ---------------- | -------------------------------------------------------------------------------------- |
 | YOLOv8           | [surajkarki66/yolov8-ultralytics](https://github.com/surajkarki66/yolov8-ultralytics)   |
 | YOLOv11, YOLOv26 | [surajkarki66/yolov26-ultralytics](https://github.com/surajkarki66/yolov26-ultralytics) |
-
 
 The host-side DPU patch (table above) adjusts the detection head for export; training with these repositories ensures the **full network** is DPU-compatible before you run `edge-ai-deploy`.
 
@@ -178,14 +177,12 @@ Bundled sample images live in `data/calibration/` for PTQ examples.
 
 This pipeline is **end-to-end** — all steps through deployment must succeed. Install the tools for the board family you deploy to:
 
-
-| Target                     | Host tools                           | Environment variables                |
-| -------------------------- | ------------------------------------ | ------------------------------------ |
-| **FPGA** (`zcu104`)        | Docker + Vitis-AI image              | —                                    |
-| **Jetson**                 | NVIDIA driver, CUDA, TensorRT 10.x   | —                                    |
-| **ARM** (`raspberry_pi_4`) | ncnn + pnnx (via `pip install -e .`) | —                                    |
-| **MCU** (`stm32n6570_dk`)  | STEdgeAI, STM32CubeIDE               | `STM32_AI_EXE`, `STM32_CUBE_IDE_EXE` |
-
+| Target                             | Host tools                            | Environment variables                    |
+| ---------------------------------- | ------------------------------------- | ---------------------------------------- |
+| **FPGA** (`zcu104`)        | Docker + Vitis-AI image               | —                                       |
+| **Jetson**                   | NVIDIA driver, CUDA, TensorRT 10.x    | —                                       |
+| **ARM** (`raspberry_pi_4`) | ncnn + pnnx (via`pip install -e .`) | —                                       |
+| **MCU** (`stm32n6570_dk`)  | STEdgeAI, STM32CubeIDE                | `STM32_AI_EXE`, `STM32_CUBE_IDE_EXE` |
 
 #### FPGA — Docker + Vitis AI
 
@@ -243,12 +240,12 @@ See [Host pre-flight checks](#host-pre-flight-checks) for what each check covers
 
 ## Run
 
-### PyTorch → FPGA (CIFAR-10 example)
+### PyTorch → FPGA (MNIST example)
 
 ```bash
-edge-ai-deploy data/cifar10.pt \
-  --model-class data/model_class/cifar_net.py:Net \
-  --input-shape 3,32,32 \
+edge-ai-deploy data/mnist_model.pt \
+  --model-class data/model_class/mnist_net.py:Net \
+  --input-shape 1,28,28 \
   --task image_classification \
   --latency-type ultra_low \
   --max-cost-usd 2000 \
@@ -258,9 +255,9 @@ edge-ai-deploy data/cifar10.pt \
 ### PyTorch → ARM / Jetson
 
 ```bash
-edge-ai-deploy data/cifar10.pt \
-  --model-class data/model_class/cifar_net.py:Net \
-  --input-shape 3,32,32 \
+edge-ai-deploy data/mnist_model.pt \
+  --model-class data/model_class/mnist_net.py:Net \
+  --input-shape 1,28,28 \
   --task image_classification \
   --latency-type moderate \
   --auto-select
@@ -269,8 +266,8 @@ edge-ai-deploy data/cifar10.pt \
 ### Keras → MCU (image classification)
 
 ```bash
-edge-ai-deploy path/to/model.keras \
-  --input-shape 3,96,96 \
+edge-ai-deploy data/mnist_model.h5 \
+  --input-shape 1,28,28 \
   --task image_classification \
   --latency-type low \
   --board-id stm32n6570_dk \
@@ -286,8 +283,8 @@ Deploy a YOLO checkpoint to the ZCU104 via Vitis AI. Use `--board-id zcu104` (or
 **YOLOv8 checkpoint** (from [yolov8-ultralytics](https://github.com/surajkarki66/yolov8-ultralytics)):
 
 ```bash
-edge-ai-deploy path/to/best_yolov8.pt \
-  --input-shape 3,640,640 \
+edge-ai-deploy data/best_yolov8n.pt \
+  --input-shape 3,416,416 \
   --task object_detection \
   --latency-type ultra_low \
   --board-id zcu104 \
@@ -326,30 +323,26 @@ Requires `STM32_AI_EXE` and `STM32_CUBE_IDE_EXE` (see host pre-flight checks bel
 
 `--task` is **required**:
 
-
-| Value                  | Use case                             |
-| ---------------------- | ------------------------------------ |
-| `image_classification` | Classifiers (e.g. CIFAR-10, ResNet)  |
+| Value                    | Use case                               |
+| ------------------------ | -------------------------------------- |
+| `image_classification` | Classifiers (e.g. MNIST, CIFAR10)      |
 | `object_detection`     | Ultralytics YOLO checkpoints (`.pt`) |
-
 
 `--latency-type` is **required**:
 
-
-| Value       | Typical platforms                         |
-| ----------- | ----------------------------------------- |
-| `ultra_low` | FPGA (`zcu104`)                           |
-| `low`       | MCU (`stm32n6570_dk`)                     |
+| Value         | Typical platforms                             |
+| ------------- | --------------------------------------------- |
+| `ultra_low` | FPGA (`zcu104`)                             |
+| `low`       | MCU (`stm32n6570_dk`)                       |
 | `medium`    | NVIDIA Jetson (`jetson_nano`, `agx_orin`) |
-| `moderate`  | Raspberry Pi (`raspberry_pi_4`)           |
-
+| `moderate`  | Raspberry Pi (`raspberry_pi_4`)             |
 
 Or invoke the module directly:
 
 ```bash
-python -m edge_ai_deployment_pipeline.main data/cifar10.pt \
-  --model-class data/model_class/cifar_net.py:Net \
-  --input-shape 3,32,32 \
+python -m edge_ai_deployment_pipeline.main data/mnist_model.pt \
+  --model-class data/model_class/mnist_net.py:Net \
+  --input-shape 1,28,28 \
   --task image_classification \
   --latency-type ultra_low \
   --auto-select
@@ -366,9 +359,9 @@ After constraint ranking, the CLI either:
 Example with budget filters:
 
 ```bash
-edge-ai-deploy data/cifar10.pt \
-  --model-class data/model_class/cifar_net.py:Net \
-  --input-shape 3,32,32 \
+edge-ai-deploy data/mnist_model.pt \
+  --model-class data/model_class/mnist_net.py:Net \
+  --input-shape 1,28,28 \
   --task image_classification \
   --latency-type ultra_low \
   --max-power-w 15 \
@@ -380,26 +373,24 @@ JSON output includes `rankings` (all scored boards) and `selected_platform` (the
 
 ### CLI options
 
-
-| Flag                 | Default                  | Description                                                                                                                 |
-| -------------------- | ------------------------ | --------------------------------------------------------------------------------------------------------------------------- |
-| `model`              | —                        | **Required.** `.pt`/`.pth` weights or `.keras`/`.h5` model                                                                  |
-| `--task`             | —                        | **Required.** `image_classification` or `object_detection`                                                                  |
-| `--latency-type`     | —                        | **Required.** `ultra_low`, `low`, `medium`, or `moderate`                                                                   |
-| `--input-shape`      | —                        | **Required.** `C,H,W` (e.g. `3,224,224`)                                                                                    |
-| `--model-class`      | —                        | **Required for `.pt`/`.pth`** except `--task object_detection` (Ultralytics YOLO). e.g. `data/model_class/cifar_net.py:Net` |
-| `--model-kwargs`     | —                        | JSON constructor kwargs, e.g. `'{"num_classes": 10}'`                                                                       |
-| `-o`, `--output-dir` | `data/artifacts`         | Base dir; each run writes to `data/artifacts/<run-id>/`                                                                     |
-| `--clean`            | off                      | Remove previous artifact runs and logs before starting                                                                      |
-| `--check-host`       | off                      | Run host pre-flight checks and exit (no model deploy)                                                                       |
-| `--platform-config`  | bundled `platforms.json` | Custom platform catalogue                                                                                                   |
-| `--max-power-w`      | `25`                     | Boards above this TDP are **excluded**                                                                                      |
-| `--max-cost-usd`     | `500`                    | Boards above this cost are **excluded**                                                                                     |
-| `--toolchain`        | —                        | Force a toolchain (`tensorrt`, `vitis_ai`, `ncnn`, `stm32n6`, …)                                                            |
-| `--board-id`         | —                        | Deploy to this board (skip interactive pick)                                                                                |
-| `--auto-select`      | off                      | Use highest-ranked board without prompting                                                                                  |
-| `-v`, `--verbose`    | off                      | Debug logging                                                                                                               |
-
+| Flag                     | Default                   | Description                                                                                                                               |
+| ------------------------ | ------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| `model`                | —                        | **Required.** `.pt`/`.pth` weights or `.keras`/`.h5` model                                                                  |
+| `--task`               | —                        | **Required.** `image_classification` or `object_detection`                                                                      |
+| `--latency-type`       | —                        | **Required.** `ultra_low`, `low`, `medium`, or `moderate`                                                                   |
+| `--input-shape`        | —                        | **Required.** `C,H,W` (e.g. `3,224,224`)                                                                                        |
+| `--model-class`        | —                        | **Required for `.pt`/`.pth`** except `--task object_detection` (Ultralytics YOLO). e.g. `data/model_class/mnist_net.py:Net` |
+| `--model-kwargs`       | —                        | JSON constructor kwargs, e.g.`'{"num_classes": 10}'`                                                                                    |
+| `-o`, `--output-dir` | `data/artifacts`        | Base dir; each run writes to`data/artifacts/<run-id>/`                                                                                  |
+| `--clean`              | off                       | Remove previous artifact runs and logs before starting                                                                                    |
+| `--check-host`         | off                       | Run host pre-flight checks and exit (no model deploy)                                                                                     |
+| `--platform-config`    | bundled`platforms.json` | Custom platform catalogue                                                                                                                 |
+| `--max-power-w`        | `25`                    | Boards above this TDP are**excluded**                                                                                               |
+| `--max-cost-usd`       | `500`                   | Boards above this cost are**excluded**                                                                                              |
+| `--toolchain`          | —                        | Force a toolchain (`tensorrt`, `vitis_ai`, `ncnn`, `stm32n6`, …)                                                                 |
+| `--board-id`           | —                        | Deploy to this board (skip interactive pick)                                                                                              |
+| `--auto-select`        | off                       | Use highest-ranked board without prompting                                                                                                |
+| `-v`, `--verbose`    | off                       | Debug logging                                                                                                                             |
 
 ### Host pre-flight checks
 
@@ -414,17 +405,15 @@ edge-ai-doctor
 
 Checks include:
 
-
-| Check                                      | Required for                                     |
-| ------------------------------------------ | ------------------------------------------------ |
-| Python (torch, tensorflow)                 | All steps                                        |
-| Docker                                     | FPGA (Vitis AI)                                  |
+| Check                                        | Required for                                     |
+| -------------------------------------------- | ------------------------------------------------ |
+| Python (torch, tensorflow)                   | All steps                                        |
+| Docker                                       | FPGA (Vitis AI)                                  |
 | `xilinx/vitis-ai-pytorch-cpu:latest` image | FPGA quantize + DPU compile                      |
 | `STM32_AI_EXE`                             | MCU (STEdgeAI compile)                           |
 | `STM32_CUBE_IDE_EXE`                       | MCU firmware build (Keras compile / YOLO deploy) |
-| TensorRT 10.x                              | Jetson INT8                                      |
-| CUDA                                       | Jetson TensorRT engine build                     |
-
+| TensorRT 10.x                                | Jetson INT8                                      |
+| CUDA                                         | Jetson TensorRT engine build                     |
 
 ### Run output layout
 
@@ -446,13 +435,11 @@ Boards whose `tdp_watts` or `cost_usd` exceed `--max-power-w` or `--max-cost-usd
 
 Each toolchain uses either an **allowlist** (FPGA Vitis AI, MCU STM32N6) or **denylist** (Jetson TensorRT, ARM ncnn) of layer/operation names.
 
-
-| Status             | Meaning                                                                          |
-| ------------------ | -------------------------------------------------------------------------------- |
-| `fully_compatible` | No unsupported operations                                                        |
+| Status               | Meaning                                                                           |
+| -------------------- | --------------------------------------------------------------------------------- |
+| `fully_compatible` | No unsupported operations                                                         |
 | `partial`          | Some unsupported layers, but ≤ 50% of total layer count                          |
 | `incompatible`     | Framework mismatch and/or > 50% unsupported layers — ranked with a score penalty |
-
 
 Layer compatibility is measured by **layer count** (e.g. 1 unsupported `Einsum` out of 87 layers ≈ 1%), not by unique layer type names. Partial and incompatible boards are included in rankings; the score penalty is proportional to `unsupported_layer_ratio` (up to −100).
 
@@ -460,14 +447,12 @@ Layer compatibility is measured by **layer count** (e.g. 1 unsupported `Einsum` 
 
 The **deployment** step runs the platform adapter for the selected board. Expect target-specific failures if host tools are missing.
 
-
-| Target     | Output                 | Notes                                                                                                                                                                                                                                                                                              |
-| ---------- | ---------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **FPGA**   | `.xmodel`              | **Vitis AI** (default in this pipeline): PyTorch PTQ + DPU compile in Docker. Ultralytics YOLO: DPU `head.py`/`block.py` patch, then quantize via `YOLO()` load. **FINN+:** use [surajkarki66/finn-plus](https://github.com/surajkarki66/finn-plus) separately — not produced by `edge-ai-deploy`. |
-| **Jetson** | TensorRT `.engine`     | PyTorch → ONNX → TensorRT. Requires CUDA. INT8 needs `calibration_data` and TensorRT 10.x.                                                                                                                                                                                                         |
-| **ARM**    | ncnn `.param` / `.bin` | PyTorch → ONNX → pnnx. Keras via tf2onnx → onnx2torch.                                                                                                                                                                                                                                             |
-| **MCU**    | STEdgeAI bundle        | **IC:** Keras → TFLite → `stedgeai` compile. **OD:** Ultralytics → TFLite → STEdgeAI → STM32CubeIDE firmware build. Requires `mako`.                                                                                                                                                               |
-
+| Target           | Output                    | Notes                                                                                                                                                                                                                                                                                                                  |
+| ---------------- | ------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **FPGA**   | `.xmodel`               | **Vitis AI** (default in this pipeline): PyTorch PTQ + DPU compile in Docker. Ultralytics YOLO: DPU `head.py`/`block.py` patch, then quantize via `YOLO()` load. **FINN+:** use [surajkarki66/finn-plus](https://github.com/surajkarki66/finn-plus) separately — not produced by `edge-ai-deploy`. |
+| **Jetson** | TensorRT`.engine`       | PyTorch → ONNX → TensorRT. Requires CUDA. INT8 needs`calibration_data` and TensorRT 10.x.                                                                                                                                                                                                                          |
+| **ARM**    | ncnn`.param` / `.bin` | PyTorch → ONNX → pnnx. Keras via tf2onnx → onnx2torch.                                                                                                                                                                                                                                                              |
+| **MCU**    | STEdgeAI bundle           | **IC:** Keras → TFLite → `stedgeai` compile. **OD:** Ultralytics → TFLite → STEdgeAI → STM32CubeIDE firmware build. Requires `mako`.                                                                                                                                                              |
 
 Artifacts are written under `<output-dir>/<run-id>/<board-id>/` (default `data/artifacts/<run-id>/`).
 
@@ -485,7 +470,7 @@ edge_ai_deployment_pipeline/
 │   │   └── fpga/toolchains/ultralytics_dpu/  # DPU-compatible YOLO head/block
 │   └── config/platforms.json   # platform catalogue
 ├── data/                       # centralized data root
-│   ├── model_class/cifar_net.py  # example PyTorch network definition
+│   ├── model_class/mnist_net.py  # example PyTorch network definition
 │   ├── calibration/            # sample calibration images + data.yaml (YOLO/MCU/FPGA PTQ)
 │   └── artifacts/              # deployment output (<run-id>/<board-id>/); add your own .pt checkpoints under data/
 ├── logs/                       # pipeline logs (pipeline_<run-id>.log)
@@ -494,4 +479,3 @@ edge_ai_deployment_pipeline/
 ├── requirements.txt
 └── ruff.toml
 ```
-

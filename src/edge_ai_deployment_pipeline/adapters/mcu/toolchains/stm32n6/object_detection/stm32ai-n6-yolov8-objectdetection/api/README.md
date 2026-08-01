@@ -10,16 +10,15 @@ The `get_model` function allows you to dynamically retrieve a model from the int
 get_model(cfg)
 ```
 
-
 ### Variables expected from CFG
 
-| Name             | Type      | Required | Description                                                                 |
-|------------------|-----------|----------|-----------------------------------------------------------------------------|
-| `model_name`     | `str`     | ✅        | Name of the model architecture (e.g., `'resnet18'`, `'mobilenet_v2'`)      |
-| `use_case`      | `str`     | ✅        | Task type (e.g., `"image_classification"`, `'segmentation'`)                |
-| `framework`      | `str`     | ✅        | Framework to use: `'torch'` or `'tensorflow'`                               |
+| Name           | Type    | Required | Description                                                              |
+| -------------- | ------- | -------- | ------------------------------------------------------------------------ |
+| `model_name` | `str` | ✅       | Name of the model architecture (e.g.,`'resnet18'`, `'mobilenet_v2'`) |
+| `use_case`   | `str` | ✅       | Task type (e.g.,`"image_classification"`, `'segmentation'`)          |
+| `framework`  | `str` | ✅       | Framework to use:`'torch'` or `'tensorflow'`                         |
 
-Plus many more according to model you are loading. 
+Plus many more according to model you are loading.
 
 ### Returns
 
@@ -32,7 +31,6 @@ Plus many more according to model you are loading.
 
 - If the combination of parameters doesn't match a known model, the function will raise an error.
 - You can pass additional model-specific keyword arguments such as `dropout_rate=0.3` or `input_shape=(224, 224, 3)` depending on the framework.
-
 
 ### Example Usage
 
@@ -48,7 +46,7 @@ model = get_model(cfg)
 
 ## `list_models` API
 
-A helper function to list all existing models based on text filters.  
+A helper function to list all existing models based on text filters.
 You can provide a string or a list of strings to filter by model name, dataset name, task type, framework, or combined keys like `"model_name_dataset_name"`.
 
 ---
@@ -66,12 +64,12 @@ list_models(
 
 ### Parameters
 
-| Name              | Type           | Required | Description                                                                                               |
-|-------------------|----------------|----------|-----------------------------------------------------------------------------------------------------------|
-| `filter_string`   | `str` or `list`| ❌        | String or list of strings containing model name, dataset name, task type, framework, or combined filters. |
-| `match_all`       | `bool`         | ❌        | If `True`, only models matching *all* keywords (intersection) are returned. If `False`, models matching *any* keyword are returned. (default: `True`) |
-| `print_table`     | `bool`         | ❌        | Whether to print a table of matched models. Returns a list. (default: `True`)           |
-| `with_checkpoint` | `bool`         | ❌        | Whether to include only models that have available checkpoints. (default: `False`)                         |
+| Name                | Type                | Required | Description                                                                                                                                                    |
+| ------------------- | ------------------- | -------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `filter_string`   | `str` or `list` | ❌       | String or list of strings containing model name, dataset name, task type, framework, or combined filters.                                                      |
+| `match_all`       | `bool`            | ❌       | If`True`, only models matching *all* keywords (intersection) are returned. If `False`, models matching *any* keyword are returned. (default: `True`) |
+| `print_table`     | `bool`            | ❌       | Whether to print a table of matched models. Returns a list. (default:`True`)                                                                                 |
+| `with_checkpoint` | `bool`            | ❌       | Whether to include only models that have available checkpoints. (default:`False`)                                                                            |
 
 ### Returns
 
@@ -127,19 +125,21 @@ get_dataloaders(cfg)
 ```
 
 ### Variables expected from CFG
-| Name           | Type   | Required | Description                                                                                                                                                                                                                                                                                                                                                                    |
-| -------------- | ------ | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `data_root`    | `str`  | ✅     | Path to the root directory containing the dataset folder.                                                                                                                                                                                                                                                                                                                             |
-| `dataset_name` | `str`  | ✅     | Name of the dataset (e.g., `'imagenet'`, `'flowers102'`, etc.).                                                                                                                                                                                                                                                                                                                       |
-| `use_case`    | `str`  | ✅     | Task type (e.g., `"image_classification"`, `'detection'`, `'segmentation'`).                                                                                                                                                                                                                                                                                                         |
-| `framework`    | `str`  | ✅     | Framework or model name used to select the appropriate dataset wrapper.     
-| `prediction_path`    | `str`  | ❌     | Path to folder containing images or folders of images.                                                                                                                                              
-| `qunatization_path`    | `str`  |  ❌    | Path to folder containing images or folders of images.                                                                                                                                                              |
-| `**kwargs`     | `dict` | ❌      | Additional keyword arguments passed to the dataset loader. Common options include:<ul><li>`download` (`bool`) – Whether to download the dataset (if supported).</li><li>`batch_size` (`int`) – Batch size for the dataloaders.</li><li>`img_size` (`int`)</li><li>`num_workers` (`int`) – Number of subprocesses for data loading.</li></ul> |
 
+| Name                  | Type     | Required | Description                                                                        |
+| --------------------- | -------- | -------- | ---------------------------------------------------------------------------------- |
+| `data_root`         | `str`  | ✅       | Path to the root directory containing the dataset folder.                          |
+| `dataset_name`      | `str`  | ✅       | Name of the dataset (e.g.,`'imagenet'`, `'flowers102'`, etc.).                 |
+| `use_case`          | `str`  | ✅       | Task type (e.g.,`"image_classification"`, `'detection'`, `'segmentation'`).  |
+| `framework`         | `str`  | ✅       | Framework or model name used to select the appropriate dataset wrapper.            |
+| `prediction_path`   | `str`  | ❌       | Path to folder containing images or folders of images.                             |
+| `qunatization_path` | `str`  | ❌       | Path to folder containing images or folders of images.                             |
+| `**kwargs`          | `dict` | ❌       | Additional keyword arguments passed to the dataset loader. Common options include: |
 
 ## Returns
+
 Returns a dictionary containing PyTorch dataloaders for training and testing splits.
+
 ```python
 Dict
 {
@@ -174,6 +174,7 @@ test_loader = dataloaders['test']
 - IMAGENET should have 'train' and 'val' folder inside it with sub folders of classes.
 
 ## Project Structure Overview
+
 ```
 project/
 ├── apis/
@@ -183,7 +184,7 @@ project/
 │
 ├── common/
 │   ├── blocks/                     # Shared building blocks
-│   ├── registry/                  
+│   ├── registry/                
 │   ├── model_registry.py           # Model registry system
 │   ├── dataset_registry.py         # Dataset registry system
 │   └── trainer_registry.py         # Trainer registry system
@@ -204,6 +205,7 @@ project/
 ```
 
 ## System Flow
+
 ```
 main.py (reads config)
     ↓
@@ -216,7 +218,6 @@ image_classification/pt/wrapper/models/  (model registration)
 image_classification/pt/src/models/      (actual model implementation)
 ```
 
-
 ## Important to Avoid Circular Imports
 
 Make sure:
@@ -226,4 +227,3 @@ common/ does not import anything from image_classification/
 src/trainers/ does not call get_model() from apis/ — it should just accept already-prepared objects
 
 wrapper/models/ only handles registration logic (and doesn't depend on training or dataset logic)
-

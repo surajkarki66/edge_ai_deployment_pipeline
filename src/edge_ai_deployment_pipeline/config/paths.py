@@ -9,4 +9,4 @@ DEFAULT_ARTIFACTS_DIR = DATA_DIR / "artifacts"
 DEFAULT_MODEL_CLASS_DIR = DATA_DIR / "model_class"
 DEFAULT_CALIBRATION_DIR = DATA_DIR / "calibration"
 
-EXAMPLE_MODEL_CLASS = f"{DEFAULT_MODEL_CLASS_DIR.as_posix()}/cifar_net.py:Net"
+EXAMPLE_MODEL_CLASS = f"{DEFAULT_MODEL_CLASS_DIR.as_posix()}/mnist_net.py:Net"
