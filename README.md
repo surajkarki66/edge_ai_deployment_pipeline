@@ -8,7 +8,7 @@ Requires **Python 3.11+**.
 
 ## Pipeline
 
-End-to-end flow (all steps run in order):
+End-to-end flow (all steps should be run in order):
 
 | Step                      | Purpose                                                                                                                                                           |
 | ------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -19,9 +19,9 @@ End-to-end flow (all steps run in order):
 | **Board selection** | Pick a ranked board (interactive prompt,`--board-id`, or `--auto-select`)                                                                                     |
 | **Deployment**      | Emit a deployable artifact for the selected target                                                                                                                |
 
-On success the CLI prints a **JSON summary** to stdout (including `rankings`, `run_id`, and the selected board) and writes deployment artifacts under `data/artifacts/<run-id>/<board-id>/` (override base path with `-o`).
+On success, the CLI prints a **JSON summary** to stdout (including `rankings`, `run_id`, and the selected board) and writes deployment artifacts under `data/artifacts/<run-id>/<board-id>/` (override base path with `-o`).
 
-Profiling, compatibility, and constraint checking run on CPU. **Deployment** requires the target-specific host tools installed in [Linux setup §5](#5-platform-specific-host-tools) (Docker, CUDA, STEdgeAI, etc.).
+Profiling, compatibility, and constraint checking run on the CPU. **Deployment** requires the target-specific host tools installed in [Linux setup §5](#5-platform-specific-host-tools) (Docker, CUDA, STEdgeAI, etc.).
 
 ## Supported platforms
 
