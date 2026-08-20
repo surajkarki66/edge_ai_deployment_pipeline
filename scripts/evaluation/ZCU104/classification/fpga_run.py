@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 
 import argparse
-import glob
+import csv
 import os
 import pickle
 import time
@@ -12,246 +12,537 @@ import vart
 import xir
 
 
-# --------------------------------------------------------------------------
-# Preprocessing / math helpers
-# --------------------------------------------------------------------------
-def classify_preprocess(image, target_width, target_height, input_scale,
-                         resize_short_side=None, mean=(0.0, 0.0, 0.0), std=(1.0, 1.0, 1.0),
-                         grayscale=False):
-    """
-    Resize -> center crop -> normalize -> quantize.
-    If grayscale=True, treats the image as single-channel (MNIST-style) and
-    skips the BGR->RGB conversion; mean/std are expected to be length-1 tuples.
-    """
-    if grayscale and image.ndim == 3:
-        image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-
-    h0, w0 = image.shape[:2]
-
-    if resize_short_side is None:
-        resize_short_side = int(round(min(target_width, target_height) * 1.14))
-
-    if h0 < w0:
-        new_h = resize_short_side
-        new_w = int(round(w0 * (resize_short_side / h0)))
-    else:
-        new_w = resize_short_side
-        new_h = int(round(h0 * (resize_short_side / w0)))
-
-    resized = cv2.resize(image, (new_w, new_h), interpolation=cv2.INTER_LINEAR)
-
-    top = max(0, (new_h - target_height) // 2)
-    left = max(0, (new_w - target_width) // 2)
-    cropped = resized[top: top + target_height, left: left + target_width]
-
-    ch, cw = cropped.shape[:2]
-    if ch != target_height or cw != target_width:
-        cropped = cv2.resize(cropped, (target_width, target_height), interpolation=cv2.INTER_LINEAR)
-
-    if grayscale:
-        arr = cropped.astype(np.float32) / 255.0
-        arr = arr.reshape(target_height, target_width, 1)
-        mean_arr = np.array(mean, dtype=np.float32).reshape(1, 1, -1)
-        std_arr = np.array(std, dtype=np.float32).reshape(1, 1, -1)
-    else:
-        arr = cv2.cvtColor(cropped, cv2.COLOR_BGR2RGB).astype(np.float32) / 255.0
-        mean_arr = np.array(mean, dtype=np.float32).reshape(1, 1, 3)
-        std_arr = np.array(std, dtype=np.float32).reshape(1, 1, 3)
-
-    normed = (arr - mean_arr) / std_arr
-    quantized = (normed * input_scale).astype(np.int8)
-
-    meta = {
-        "mode": "classify_center_crop",
-        "h0": h0, "w0": w0,
-        "resize_short_side": resize_short_side,
-        "target_w": target_width, "target_h": target_height,
-        "grayscale": grayscale,
-    }
-    return quantized, meta
-
-
-def softmax_1d(x: np.ndarray) -> np.ndarray:
-    x = x - np.max(x)
-    e = np.exp(x)
-    return e / np.sum(e)
-
+# ============================================================================
+# DPU / XIR helpers
+# ============================================================================
 
 def get_child_subgraph_dpu(graph):
     root_subgraph = graph.get_root_subgraph()
     child_subgraphs = root_subgraph.toposort_child_subgraph()
+
     return [
-        cs for cs in child_subgraphs
-        if cs.has_attr("device") and cs.get_attr("device").upper() == "DPU"
+        cs
+        for cs in child_subgraphs
+        if cs.has_attr("device")
+        and cs.get_attr("device").upper() == "DPU"
     ]
 
 
-# --------------------------------------------------------------------------
-# Test-set discovery
-# --------------------------------------------------------------------------
-def build_test_list(test_dir: str):
-    """
-    Returns list of (image_path, true_label:int|None) from a class-subfolder layout:
-        test_dir/<digit_label>/*.png
-    """
-    samples = []
+# ============================================================================
+# CSV
+# ============================================================================
 
-    subdirs = [d for d in sorted(os.listdir(test_dir))
-               if os.path.isdir(os.path.join(test_dir, d))]
-    if not subdirs:
-        raise ValueError(
-            f"No class subfolders found in {test_dir}. "
-            "Expected layout: test_dir/<digit_label>/*.png"
+def load_labels(csv_path):
+    """
+    CSV format:
+
+        filename,label
+        821.png,0
+        5942.png,0
+        312.png,0
+        6978.png,0
+    """
+
+    labels = {}
+
+    with open(csv_path, "r", newline="") as f:
+        reader = csv.DictReader(f)
+
+        if "filename" not in reader.fieldnames:
+            raise ValueError(
+                "CSV must contain a 'filename' column."
+            )
+
+        if "label" not in reader.fieldnames:
+            raise ValueError(
+                "CSV must contain a 'label' column."
+            )
+
+        for row in reader:
+            filename = row["filename"].strip()
+            label = int(row["label"])
+
+            labels[filename] = label
+
+    return labels
+
+
+# ============================================================================
+# MNIST preprocessing
+# ============================================================================
+
+def preprocess_mnist(image, input_scale):
+    """
+    Exactly matches the training preprocessing:
+
+        ToTensor()
+        Normalize((0.1307,), (0.3081,))
+
+    Training:
+
+        x = pixel / 255
+        x = (x - 0.1307) / 0.3081
+
+    Then quantization:
+
+        x_quant = x * input_scale
+
+    """
+
+    if image is None:
+        raise ValueError("Input image is None.")
+
+    # Convert to grayscale
+    if image.ndim == 3:
+        image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+
+    # MNIST is 28x28
+    if image.shape != (28, 28):
+        image = cv2.resize(
+            image,
+            (28, 28),
+            interpolation=cv2.INTER_LINEAR
         )
 
-    for d in subdirs:
-        try:
-            label = int(d)
-        except ValueError:
-            label = d  # keep string label as-is if not numeric
-        for img_path in sorted(glob.glob(os.path.join(test_dir, d, "*"))):
-            if os.path.splitext(img_path)[1].lower() in (".png", ".jpg", ".jpeg", ".bmp"):
-                samples.append((img_path, label))
+    # Same as torchvision.transforms.ToTensor()
+    image = image.astype(np.float32) / 255.0
 
-    return samples
+    # Same as:
+    # transforms.Normalize((0.1307,), (0.3081,))
+    image = (image - 0.1307) / 0.3081
+
+    # Quantize for DPU
+    image = image * input_scale
+
+    image = image.astype(np.int8)
+
+    # NHWC:
+    # (28, 28) -> (28, 28, 1)
+    image = image.reshape(28, 28, 1)
+
+    return image
 
 
-# --------------------------------------------------------------------------
-# Predict
-# --------------------------------------------------------------------------
-def run_predict(model_path, config_path, test_dir, output_pkl, grayscale=False):
-    g = xir.Graph.deserialize(model_path)
-    subgraphs = get_child_subgraph_dpu(g)
+# ============================================================================
+# FPGA inference
+# ============================================================================
+
+def run_fpga_test(
+    model_path,
+    image_dir,
+    csv_path,
+    output_pkl,
+):
+
+    print("=" * 80)
+    print("Loading XModel:", model_path)
+    print("=" * 80)
+
+    # ------------------------------------------------------------------------
+    # Load XModel
+    # ------------------------------------------------------------------------
+
+    graph = xir.Graph.deserialize(model_path)
+
+    subgraphs = get_child_subgraph_dpu(graph)
+
     if not subgraphs:
-        raise RuntimeError("No DPU subgraph found in the xmodel.")
-    runner = vart.Runner.create_runner(subgraphs[0], "run")
+        raise RuntimeError(
+            "No DPU subgraph found in the XModel."
+        )
 
-    input_t = runner.get_input_tensors()[0]
-    in_shape = tuple(input_t.dims)
-    if len(in_shape) != 4:
-        raise ValueError(f"Unexpected input tensor dims: {in_shape}")
-    in_scale = 2 ** input_t.get_attr("fix_point")
+    print("DPU subgraph:", subgraphs[0].get_name())
 
-    out_tensors = runner.get_output_tensors()
-    if len(out_tensors) != 1:
-        raise ValueError(f"Expected a single logits/prob output tensor, got {len(out_tensors)}")
-    out_fixpoint = out_tensors[0].get_attr("fix_point")
-    out_scale = float(2 ** out_fixpoint)
+    runner = vart.Runner.create_runner(
+        subgraphs[0],
+        "run"
+    )
 
-    with open(config_path, "rb") as f:
-        cfg = pickle.load(f)
-    class_names = cfg[0]
-    needs_softmax = bool(cfg[1]) if len(cfg) > 1 else True
-    n_channels = 1 if grayscale else 3
-    mean = tuple(cfg[2]) if len(cfg) > 2 else tuple([0.0] * n_channels)
-    std = tuple(cfg[3]) if len(cfg) > 3 else tuple([1.0] * n_channels)
+    # ------------------------------------------------------------------------
+    # Input tensor
+    # ------------------------------------------------------------------------
 
-    input_is_nhwc = in_shape[-1] in (1, 3)
-    input_is_nchw = in_shape[1] in (1, 3) and not input_is_nhwc
-    if not (input_is_nhwc or input_is_nchw):
-        raise ValueError(f"Unsupported input layout for dims {in_shape}.")
-    if int(in_shape[0]) != 1:
-        raise ValueError(f"This script supports batch size 1, got input batch {in_shape[0]}")
+    input_tensor = runner.get_input_tensors()[0]
 
-    in_h = int(in_shape[1]) if input_is_nhwc else int(in_shape[2])
-    in_w = int(in_shape[2]) if input_is_nhwc else int(in_shape[3])
+    input_shape = tuple(input_tensor.dims)
 
-    out_shape = tuple(out_tensors[0].dims)
-    if int(out_shape[0]) != 1:
-        raise ValueError(f"This script supports batch size 1, got output batch {out_shape[0]}")
-    num_classes = int(np.prod(out_shape[1:]))
-    if class_names and len(class_names) != num_classes:
-        print(f"WARNING: config has {len(class_names)} class names but model outputs "
-              f"{num_classes} logits.")
+    input_fix_point = input_tensor.get_attr("fix_point")
 
-    samples = build_test_list(test_dir)
-    if not samples:
-        raise RuntimeError(f"No test images found under {test_dir}")
-    print(f"Found {len(samples)} test images.")
-    print(f"Input shape: {in_shape}, target crop={in_w}x{in_h}, grayscale={grayscale}")
+    input_scale = 2 ** input_fix_point
 
-    results = []
-    in_data = [np.empty(in_shape, dtype=np.int8, order="C")]
-    out_data = [np.empty(out_shape, dtype=np.int8, order="C")]
+    # ------------------------------------------------------------------------
+    # Output tensor
+    # ------------------------------------------------------------------------
 
-    overall_start = time.perf_counter()
-    for i, (img_path, true_label) in enumerate(samples):
-        frame = cv2.imread(img_path, cv2.IMREAD_GRAYSCALE if grayscale else cv2.IMREAD_COLOR)
-        if frame is None:
-            print(f"WARNING: could not read {img_path}, skipping.")
+    output_tensors = runner.get_output_tensors()
+
+    if len(output_tensors) != 1:
+        raise RuntimeError(
+            f"Expected 1 output tensor, got {len(output_tensors)}"
+        )
+
+    output_tensor = output_tensors[0]
+
+    output_shape = tuple(output_tensor.dims)
+
+    output_fix_point = output_tensor.get_attr("fix_point")
+
+    output_scale = 2 ** output_fix_point
+
+    # ------------------------------------------------------------------------
+    # Print model information
+    # ------------------------------------------------------------------------
+
+    print()
+    print("MODEL INFORMATION")
+    print("-" * 80)
+
+    print("Input shape:       ", input_shape)
+    print("Input fix point:   ", input_fix_point)
+    print("Input scale:       ", input_scale)
+
+    print("Output shape:      ", output_shape)
+    print("Output fix point:  ", output_fix_point)
+    print("Output scale:      ", output_scale)
+
+    # We expect MNIST
+    if input_shape != (1, 28, 28, 1):
+        raise RuntimeError(
+            f"Expected MNIST input shape (1,28,28,1), "
+            f"but got {input_shape}"
+        )
+
+    if output_shape != (1, 10):
+        raise RuntimeError(
+            f"Expected MNIST output shape (1,10), "
+            f"but got {output_shape}"
+        )
+
+    # ------------------------------------------------------------------------
+    # Load CSV
+    # ------------------------------------------------------------------------
+
+    labels = load_labels(csv_path)
+
+    print()
+    print(f"Labels loaded from CSV: {len(labels)}")
+
+    # ------------------------------------------------------------------------
+    # Find images
+    # ------------------------------------------------------------------------
+
+    valid_extensions = {
+        ".png",
+        ".jpg",
+        ".jpeg",
+        ".bmp",
+    }
+
+    image_files = []
+
+    for filename in os.listdir(image_dir):
+
+        extension = os.path.splitext(filename)[1].lower()
+
+        if extension not in valid_extensions:
             continue
 
-        processed_img, _ = classify_preprocess(
-            frame, in_w, in_h, in_scale, mean=mean, std=std, grayscale=grayscale
+        image_path = os.path.join(
+            image_dir,
+            filename
         )
 
-        if input_is_nhwc:
-            if grayscale:
-                in_data[0][0, :, :, 0] = processed_img[:, :, 0]
-            else:
-                in_data[0][0, ...] = processed_img
-        else:
-            for c in range(n_channels):
-                in_data[0][0, c, :, :] = processed_img[:, :, c]
+        if filename not in labels:
+            print(
+                f"WARNING: {filename} not found in CSV. Skipping."
+            )
+            continue
 
-        fpga_start = time.perf_counter()
-        jid = runner.execute_async(in_data, out_data)
-        runner.wait(jid)
-        fpga_end = time.perf_counter()
+        image_files.append(
+            (filename, image_path, labels[filename])
+        )
 
-        logits = (out_data[0].astype(np.float32) / out_scale).reshape(-1).copy()
-        probs = softmax_1d(logits) if needs_softmax else logits
-        pred_label = int(np.argmax(probs))
+    image_files.sort()
+
+    if not image_files:
+        raise RuntimeError(
+            "No images found that have corresponding labels in CSV."
+        )
+
+    print(f"Images to test: {len(image_files)}")
+
+    # ------------------------------------------------------------------------
+    # Allocate DPU buffers
+    # ------------------------------------------------------------------------
+
+    input_data = [
+        np.empty(
+            input_shape,
+            dtype=np.int8,
+            order="C"
+        )
+    ]
+
+    output_data = [
+        np.empty(
+            output_shape,
+            dtype=np.int8,
+            order="C"
+        )
+    ]
+
+    # ------------------------------------------------------------------------
+    # Run inference
+    # ------------------------------------------------------------------------
+
+    results = []
+
+    total_fpga_time = 0.0
+
+    successful = 0
+
+    print()
+    print("=" * 80)
+    print("STARTING FPGA INFERENCE")
+    print("=" * 80)
+
+    for index, (filename, image_path, true_label) in enumerate(image_files):
+
+        # ------------------------------------------------------------
+        # Read image
+        # ------------------------------------------------------------
+
+        image = cv2.imread(
+            image_path,
+            cv2.IMREAD_GRAYSCALE
+        )
+
+        if image is None:
+            print(
+                f"WARNING: Could not read {image_path}"
+            )
+            continue
+
+        # ------------------------------------------------------------
+        # Preprocessing
+        # ------------------------------------------------------------
+
+        processed = preprocess_mnist(
+            image,
+            input_scale
+        )
+
+        # NHWC
+        input_data[0][0, :, :, 0] = processed[:, :, 0]
+
+        # ------------------------------------------------------------
+        # FPGA timing
+        # ------------------------------------------------------------
+
+        start = time.perf_counter()
+
+        job_id = runner.execute_async(
+            input_data,
+            output_data
+        )
+
+        runner.wait(job_id)
+
+        end = time.perf_counter()
+
+        latency_ms = (
+            end - start
+        ) * 1000.0
+
+        total_fpga_time += (
+            end - start
+        )
+
+        # ------------------------------------------------------------
+        # Get raw output
+        # ------------------------------------------------------------
+
+        raw_output = (
+            output_data[0]
+            .reshape(-1)
+            .copy()
+        )
+
+        # ------------------------------------------------------------
+        # Dequantize
+        # ------------------------------------------------------------
+
+        scores = (
+            raw_output.astype(np.float32)
+            / output_scale
+        )
+        pred_label = int(
+            np.argmax(scores)
+        )
+
+        pred_score = float(
+            scores[pred_label]
+        )
+
+        # ------------------------------------------------------------
+        # Store result
+        # ------------------------------------------------------------
 
         results.append({
-            "image_path": img_path,
-            "true_label": true_label,
+            "filename": filename,
+            "image_path": image_path,
+            "true_label": int(true_label),
             "pred_label": pred_label,
-            "pred_score": float(probs[pred_label]),
-            "all_probs": probs.copy(),
-            "latency_ms": (fpga_end - fpga_start) * 1000.0,
+            "pred_score": pred_score,
+            "raw_output": raw_output,
+            "scores": scores,
+            "latency_ms": latency_ms,
         })
 
-        if (i + 1) % 500 == 0:
-            print(f"  processed {i+1}/{len(samples)}")
+        successful += 1
 
-    overall_end = time.perf_counter()
-    total_s = overall_end - overall_start
+        # ------------------------------------------------------------
+        # Progress
+        # ------------------------------------------------------------
+
+        if successful % 100 == 0:
+
+            print(
+                f"Processed "
+                f"{successful}/{len(image_files)}"
+            )
+
+    # ------------------------------------------------------------------------
+    # Statistics
+    # ------------------------------------------------------------------------
+
+    if successful == 0:
+        raise RuntimeError(
+            "No images were successfully processed."
+        )
+
+    total_time = total_fpga_time
+
+    mean_latency = (
+        total_time / successful
+    ) * 1000.0
+
+    throughput = (
+        successful / total_time
+    )
+
+    # ------------------------------------------------------------------------
+    # Save predictions
+    # ------------------------------------------------------------------------
 
     payload = {
-        "class_names": class_names,
-        "num_classes": num_classes,
-        "num_samples": len(results),
-        "total_time_s": total_s,
+        "model_path": model_path,
+
+        "input_shape": input_shape,
+        "input_fix_point": input_fix_point,
+        "input_scale": input_scale,
+
+        "output_shape": output_shape,
+        "output_fix_point": output_fix_point,
+        "output_scale": output_scale,
+
+        "num_samples": successful,
+
+        "total_fpga_time_s": total_time,
+
+        "mean_latency_ms": mean_latency,
+
+        "fpga_throughput_fps": throughput,
+
         "results": results,
     }
+
     with open(output_pkl, "wb") as f:
-        pickle.dump(payload, f)
+        pickle.dump(
+            payload,
+            f
+        )
 
-    print("-" * 80)
-    print(f"Ran {len(results)} samples in {total_s:.2f}s "
-          f"({len(results)/total_s:.2f} samples/s overall)")
-    print(f"Predictions saved to: {output_pkl}")
+    # ------------------------------------------------------------------------
+    # Print summary
+    # ------------------------------------------------------------------------
 
+    print()
+    print("=" * 80)
+    print("FPGA INFERENCE COMPLETE")
+    print("=" * 80)
+
+    print(
+        f"Samples:             {successful}"
+    )
+
+    print(
+        f"Total FPGA time:     {total_time:.4f} s"
+    )
+
+    print(
+        f"Mean FPGA latency:   {mean_latency:.4f} ms"
+    )
+
+    print(
+        f"FPGA throughput:     {throughput:.2f} FPS"
+    )
+
+    print(
+        f"Predictions saved:   {output_pkl}"
+    )
+
+    print("=" * 80)
+
+
+# ============================================================================
+# Arguments
+# ============================================================================
 
 def parse_args():
-    p = argparse.ArgumentParser(
-        description="Run FPGA/DPU inference over a test set and dump raw predictions."
-    )
-    p.add_argument("model_path", help="Path to .xmodel")
-    p.add_argument("config_path", help="Path to config.pkl containing (class_names, needs_softmax, mean, std)")
-    p.add_argument("test_dir", help="Path to test set (class-subfolder layout: test_dir/<label>/*.png)")
-    p.add_argument("output_pkl", help="Where to save raw predictions (pickle)")
-    p.add_argument("--grayscale", action="store_true", help="Treat input as single-channel (MNIST)")
-    return p.parse_args()
 
+    parser = argparse.ArgumentParser(
+        description=(
+            "MNIST FPGA/DPU inference. "
+            "Images are stored in one directory and "
+            "ground-truth labels are provided by CSV."
+        )
+    )
+
+    parser.add_argument(
+        "model_path",
+        help="Path to deployed .xmodel"
+    )
+
+    parser.add_argument(
+        "image_dir",
+        help="Directory containing all test images"
+    )
+
+    parser.add_argument(
+        "csv_path",
+        help="CSV containing filename,label"
+    )
+
+    parser.add_argument(
+        "output_pkl",
+        help="Output pickle containing FPGA predictions"
+    )
+
+    return parser.parse_args()
+
+
+# ============================================================================
+# Main
+# ============================================================================
 
 if __name__ == "__main__":
+
     args = parse_args()
-    run_predict(
+
+    run_fpga_test(
         model_path=args.model_path,
-        config_path=args.config_path,
-        test_dir=args.test_dir,
+        image_dir=args.image_dir,
+        csv_path=args.csv_path,
         output_pkl=args.output_pkl,
-        grayscale=args.grayscale,
     )

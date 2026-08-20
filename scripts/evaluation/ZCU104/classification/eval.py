@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+
 import argparse
 import json
 import pickle
@@ -7,91 +8,317 @@ from collections import defaultdict
 import numpy as np
 
 
-def run_evaluate(predictions_pkl, report_path=None):
+def evaluate(predictions_pkl, report_path=None):
+
     with open(predictions_pkl, "rb") as f:
         payload = pickle.load(f)
 
     results = payload["results"]
-    class_names = payload.get("class_names")
-    n = len(results)
-    if n == 0:
-        raise RuntimeError("No predictions found in the pickle.")
+
+    if not results:
+        raise RuntimeError(
+            "No predictions found."
+        )
+
+    total = len(results)
+
+    # ------------------------------------------------------------------
+    # Accuracy
+    # ------------------------------------------------------------------
 
     correct = 0
+
     per_class_total = defaultdict(int)
     per_class_correct = defaultdict(int)
-    confusion = defaultdict(lambda: defaultdict(int))  # confusion[true][pred] = count
+
+    confusion = defaultdict(
+        lambda: defaultdict(int)
+    )
+
     latencies = []
 
-    for r in results:
-        t, p = r["true_label"], r["pred_label"]
-        latencies.append(r["latency_ms"])
-        per_class_total[t] += 1
-        confusion[t][p] += 1
-        if t == p:
+    for result in results:
+
+        true_label = int(
+            result["true_label"]
+        )
+
+        pred_label = int(
+            result["pred_label"]
+        )
+
+        latency = float(
+            result["latency_ms"]
+        )
+
+        latencies.append(latency)
+
+        per_class_total[true_label] += 1
+
+        confusion[true_label][pred_label] += 1
+
+        if true_label == pred_label:
+
             correct += 1
-            per_class_correct[t] += 1
 
-    accuracy = correct / n
-    latencies = np.array(latencies)
+            per_class_correct[
+                true_label
+            ] += 1
 
+    # ------------------------------------------------------------------
+    # Metrics
+    # ------------------------------------------------------------------
+
+    accuracy = correct / total
+
+    latencies = np.asarray(
+        latencies,
+        dtype=np.float64
+    )
+
+    mean_latency = latencies.mean()
+
+    p50_latency = np.percentile(
+        latencies,
+        50
+    )
+
+    p95_latency = np.percentile(
+        latencies,
+        95
+    )
+
+    max_latency = latencies.max()
+
+    throughput = (
+        1000.0 / mean_latency
+    )
+
+    # ------------------------------------------------------------------
+    # Print
+    # ------------------------------------------------------------------
+
+    print()
     print("=" * 80)
-    print(f"Samples evaluated: {n}")
-    print(f"Overall accuracy:  {accuracy*100:.2f}%  ({correct}/{n})")
-    print(f"Latency (ms): mean={latencies.mean():.2f} "
-          f"p50={np.percentile(latencies,50):.2f} "
-          f"p95={np.percentile(latencies,95):.2f} "
-          f"max={latencies.max():.2f}")
-    print(f"Throughput: {1000.0/latencies.mean():.2f} FPS (per-sample DPU latency)")
+    print("MNIST FPGA EVALUATION")
+    print("=" * 80)
+
+    print(
+        f"Samples evaluated: {total}"
+    )
+
+    print(
+        f"Correct:           {correct}"
+    )
+
+    print(
+        f"Incorrect:         {total - correct}"
+    )
+
+    print(
+        f"Overall accuracy:  "
+        f"{accuracy * 100:.2f}% "
+        f"({correct}/{total})"
+    )
+
     print("-" * 80)
+
+    print("FPGA latency:")
+
+    print(
+        f"  Mean: {mean_latency:.4f} ms"
+    )
+
+    print(
+        f"  P50:  {p50_latency:.4f} ms"
+    )
+
+    print(
+        f"  P95:  {p95_latency:.4f} ms"
+    )
+
+    print(
+        f"  Max:  {max_latency:.4f} ms"
+    )
+
+    print(
+        f"  FPGA throughput: "
+        f"{throughput:.2f} FPS"
+    )
+
+    print("-" * 80)
+
+    # ------------------------------------------------------------------
+    # Per-class accuracy
+    # ------------------------------------------------------------------
+
     print("Per-class accuracy:")
 
     per_class_report = {}
-    for cls in sorted(per_class_total.keys(), key=lambda x: str(x)):
-        tot = per_class_total[cls]
-        cor = per_class_correct.get(cls, 0)
-        acc = cor / tot if tot else 0.0
-        name = class_names[cls] if class_names and isinstance(cls, int) and cls < len(class_names) else str(cls)
-        print(f"  class {name}: {acc*100:6.2f}%  ({cor}/{tot})")
-        per_class_report[str(cls)] = {"accuracy": acc, "correct": cor, "total": tot}
 
+    for label in sorted(
+        per_class_total.keys()
+    ):
+
+        total_class = (
+            per_class_total[label]
+        )
+
+        correct_class = (
+            per_class_correct.get(
+                label,
+                0
+            )
+        )
+
+        class_accuracy = (
+            correct_class /
+            total_class
+        )
+
+        print(
+            f"  {label}: "
+            f"{correct_class}/{total_class} "
+            f"({class_accuracy * 100:.2f}%)"
+        )
+
+        per_class_report[str(label)] = {
+            "correct": correct_class,
+            "total": total_class,
+            "accuracy": class_accuracy,
+        }
+
+    # ------------------------------------------------------------------
+    # Confusion matrix
+    # ------------------------------------------------------------------
+
+    labels = sorted(
+        per_class_total.keys()
+    )
+
+    print()
     print("-" * 80)
-    print("Confusion matrix (rows=true, cols=pred):")
-    labels_sorted = sorted(per_class_total.keys(), key=lambda x: str(x))
-    header = "      " + " ".join(f"{str(l):>4}" for l in labels_sorted)
-    print(header)
-    for t in labels_sorted:
-        row = " ".join(f"{confusion[t].get(p,0):4d}" for p in labels_sorted)
-        print(f"{str(t):>5} {row}")
+    print("Confusion matrix")
+    print("Rows = true, columns = predicted")
+    print()
+
+    print(
+        "     " +
+        " ".join(
+            f"{label:4d}"
+            for label in labels
+        )
+    )
+
+    for true_label in labels:
+
+        row = []
+
+        for pred_label in labels:
+
+            value = confusion[
+                true_label
+            ].get(
+                pred_label,
+                0
+            )
+
+            row.append(
+                f"{value:4d}"
+            )
+
+        print(
+            f"{true_label:3d}  " +
+            " ".join(row)
+        )
+
+    # ------------------------------------------------------------------
+    # JSON report
+    # ------------------------------------------------------------------
 
     if report_path:
+
         report = {
-            "num_samples": n,
-            "accuracy": accuracy,
+
+            "num_samples": total,
+
             "correct": correct,
+
+            "incorrect": total - correct,
+
+            "accuracy": accuracy,
+
             "latency_ms": {
-                "mean": float(latencies.mean()),
-                "p50": float(np.percentile(latencies, 50)),
-                "p95": float(np.percentile(latencies, 95)),
-                "max": float(latencies.max()),
+                "mean": float(mean_latency),
+                "p50": float(p50_latency),
+                "p95": float(p95_latency),
+                "max": float(max_latency),
             },
+
+            "throughput_fps": float(
+                throughput
+            ),
+
             "per_class": per_class_report,
-            "confusion_matrix": {str(t): {str(p): c for p, c in row.items()} for t, row in confusion.items()},
+
+            "confusion_matrix": {
+                str(true_label): {
+                    str(pred_label): count
+                    for pred_label, count
+                    in confusion[true_label].items()
+                }
+                for true_label in labels
+            },
         }
-        with open(report_path, "w") as f:
-            json.dump(report, f, indent=2)
-        print(f"\nJSON report saved to: {report_path}")
+
+        with open(
+            report_path,
+            "w"
+        ) as f:
+
+            json.dump(
+                report,
+                f,
+                indent=2
+            )
+
+        print()
+        print(
+            f"JSON report saved to: "
+            f"{report_path}"
+        )
+
+    print("=" * 80)
 
 
 def parse_args():
-    p = argparse.ArgumentParser(
-        description="Compute accuracy/metrics from FPGA predictions saved by mnist_fpga_predict.py"
+
+    parser = argparse.ArgumentParser(
+        description=(
+            "Evaluate MNIST FPGA predictions "
+            "without using the FPGA."
+        )
     )
-    p.add_argument("predictions_pkl", help="Path to predictions pickle from the predict script")
-    p.add_argument("--report", default=None, help="Optional path to write a JSON report")
-    return p.parse_args()
+
+    parser.add_argument(
+        "predictions_pkl",
+        help="Prediction pickle from mnist_fpga_test.py"
+    )
+
+    parser.add_argument(
+        "--report",
+        default=None,
+        help="Optional JSON report path"
+    )
+
+    return parser.parse_args()
 
 
 if __name__ == "__main__":
+
     args = parse_args()
-    run_evaluate(args.predictions_pkl, args.report)
+
+    evaluate(
+        predictions_pkl=args.predictions_pkl,
+        report_path=args.report,
+    )

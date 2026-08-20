@@ -1,262 +1,619 @@
 #!/usr/bin/env python3
+
+from __future__ import print_function
+
 import argparse
 import os
-import pickle
 import time
+
 import cv2
 import numpy as np
 import vart
 import xir
 
-from typing import Tuple
 
+# =============================================================================
+# DPU helper
+# =============================================================================
 
-# FPGA / VART helpers
-def get_child_subgraph_dpu(graph: "xir.Graph"):
+def get_child_subgraph_dpu(graph):
     root_subgraph = graph.get_root_subgraph()
     child_subgraphs = root_subgraph.toposort_child_subgraph()
+
     return [
         cs
         for cs in child_subgraphs
-        if cs.has_attr("device") and cs.get_attr("device").upper() == "DPU"
+        if cs.has_attr("device")
+        and cs.get_attr("device").upper() == "DPU"
     ]
 
 
-def classify_preprocess(image, target_width, target_height, input_scale,
-                         resize_short_side=None, mean=(0.0, 0.0, 0.0), std=(1.0, 1.0, 1.0)):
-    """
-    Standard classification preprocessing: resize -> center crop -> normalize -> quantize.
+# =============================================================================
+# MNIST preprocessing
+# =============================================================================
 
-    Args:
-        image: BGR image from cv2
-        target_width/target_height: model input spatial size (after crop)
-        input_scale: 2 ** fix_point from the DPU input tensor
-        resize_short_side: if set, resize so the shorter side equals this value before
-                            center-cropping to (target_width, target_height). If None,
-                            resize_short_side defaults to target size * 1.14 (common ImageNet-style ratio).
-        mean/std: normalization stats applied on the [0,1]-scaled RGB image before quantization
-
-    Returns:
-        processed: np.int8 array ready for DPU, shape (target_height, target_width, 3)
-        meta: dict with transform parameters (kept for parity with detection script / debugging)
-    """
-    h0, w0 = image.shape[:2]
-
-    if resize_short_side is None:
-        resize_short_side = int(round(min(target_width, target_height) * 1.14))
-
-    # Resize preserving aspect ratio so the shorter side == resize_short_side
-    if h0 < w0:
-        new_h = resize_short_side
-        new_w = int(round(w0 * (resize_short_side / h0)))
-    else:
-        new_w = resize_short_side
-        new_h = int(round(h0 * (resize_short_side / w0)))
-
-    resized = cv2.resize(image, (new_w, new_h), interpolation=cv2.INTER_LINEAR)
-
-    # Center crop to (target_width, target_height)
-    top = max(0, (new_h - target_height) // 2)
-    left = max(0, (new_w - target_width) // 2)
-    cropped = resized[top: top + target_height, left: left + target_width]
-
-    # Guard against off-by-one rounding leaving the crop short of target size
-    ch, cw = cropped.shape[:2]
-    if ch != target_height or cw != target_width:
-        cropped = cv2.resize(cropped, (target_width, target_height), interpolation=cv2.INTER_LINEAR)
-
-    # BGR -> RGB, normalize, quantize
-    rgb = cv2.cvtColor(cropped, cv2.COLOR_BGR2RGB).astype(np.float32) / 255.0
-    mean_arr = np.array(mean, dtype=np.float32).reshape(1, 1, 3)
-    std_arr = np.array(std, dtype=np.float32).reshape(1, 1, 3)
-    normed = (rgb - mean_arr) / std_arr
-    quantized = (normed * input_scale).astype(np.int8)
-
-    meta = {
-        "mode": "classify_center_crop",
-        "h0": h0,
-        "w0": w0,
-        "resize_short_side": resize_short_side,
-        "target_w": target_width,
-        "target_h": target_height,
-    }
-    return quantized, meta
-
-
-def softmax_1d(x: np.ndarray) -> np.ndarray:
-    x = x - np.max(x)
-    e = np.exp(x)
-    return e / np.sum(e)
-
-
-def topk(scores: np.ndarray, k: int) -> Tuple[np.ndarray, np.ndarray]:
-    k = min(k, scores.shape[0])
-    idx = np.argpartition(-scores, k - 1)[:k]
-    idx = idx[np.argsort(-scores[idx])]
-    return idx, scores[idx]
-
-
-# Single-image inference
-def run_image_classify(
-    model_path: str,
-    config_path: str,
-    image_path: str,
-    output_dir: str,
-    top_k: int,
+def preprocess_mnist(
+    image,
+    target_width,
+    target_height,
+    input_scale,
 ):
-    os.makedirs(output_dir, exist_ok=True)
+    """
+    Must match training:
 
-    g = xir.Graph.deserialize(model_path)
-    subgraphs = get_child_subgraph_dpu(g)
-    if not subgraphs:
-        raise RuntimeError("No DPU subgraph found in the xmodel.")
-    runner = vart.Runner.create_runner(subgraphs[0], "run")
-
-    input_t = runner.get_input_tensors()[0]
-    in_shape = tuple(input_t.dims)  # expected NHWC or NCHW
-    if len(in_shape) != 4:
-        raise ValueError(f"Unexpected input tensor dims: {in_shape}")
-    in_scale = 2 ** input_t.get_attr("fix_point")
-
-    out_tensors = runner.get_output_tensors()
-    if len(out_tensors) != 1:
-        raise ValueError(
-            f"Classification script expects a single logits/prob output tensor, got {len(out_tensors)}"
-        )
-    out_fixpoint = out_tensors[0].get_attr("fix_point")
-    out_scale = float(2 ** out_fixpoint)
-
-    # config.pkl for classification: (class_names, needs_softmax, mean, std)
-    # class_names: list[str]; needs_softmax: bool (False if output is already probabilities,
-    # e.g. softmax fused into the graph); mean/std: normalization stats used at training time.
-    with open(config_path, "rb") as f:
-        cfg = pickle.load(f)
-    class_names = cfg[0]
-    needs_softmax = bool(cfg[1]) if len(cfg) > 1 else True
-    mean = tuple(cfg[2]) if len(cfg) > 2 else (0.0, 0.0, 0.0)
-    std = tuple(cfg[3]) if len(cfg) > 3 else (1.0, 1.0, 1.0)
-
-    input_is_nhwc = in_shape[-1] == 3
-    input_is_nchw = in_shape[1] == 3 and not input_is_nhwc
-    if not (input_is_nhwc or input_is_nchw):
-        raise ValueError(f"Unsupported input layout for dims {in_shape}. Expected RGB on channel axis.")
-
-    if int(in_shape[0]) != 1:
-        raise ValueError(f"This script currently supports batch size 1, got input batch {in_shape[0]}")
-
-    in_h = int(in_shape[1]) if input_is_nhwc else int(in_shape[2])
-    in_w = int(in_shape[2]) if input_is_nhwc else int(in_shape[3])
-
-    out_shape = tuple(out_tensors[0].dims)
-    if int(out_shape[0]) != 1:
-        raise ValueError(f"This script currently supports batch size 1, got output batch {out_shape[0]}")
-    num_classes = int(np.prod(out_shape[1:]))
-    if class_names and len(class_names) != num_classes:
-        print(
-            f"WARNING: config has {len(class_names)} class names but model outputs "
-            f"{num_classes} logits; falling back to numeric class ids where names are missing."
+        transforms.ToTensor()
+        transforms.Normalize(
+            (0.1307,),
+            (0.3081,)
         )
 
-    print(f"Input shape: {in_shape}, target crop={in_w}x{in_h}")
-    print(f"Preprocessing: resize-short-side + center crop, mean={mean}, std={std}")
-    print(f"Classifier params: num_classes={num_classes}, needs_softmax={needs_softmax}, top_k={top_k}")
+    Pipeline:
 
-    frame = cv2.imread(image_path)
-    if frame is None:
-        raise RuntimeError(f"Could not read image: {image_path}")
+        uint8 [0,255]
+            ->
+        float [0,1]
+            ->
+        normalize
+            ->
+        quantize
+            ->
+        int8
+    """
 
-    in_data = [np.empty(in_shape, dtype=np.int8, order="C")]
-    out_data = [np.empty(out_shape, dtype=np.int8, order="C")]
+    # Convert to grayscale if necessary
+    if image.ndim == 3:
+        image = cv2.cvtColor(
+            image,
+            cv2.COLOR_BGR2GRAY
+        )
 
-    end_to_end_start = time.perf_counter()
+    # Resize if necessary
+    if (
+        image.shape[0] != target_height
+        or image.shape[1] != target_width
+    ):
+        image = cv2.resize(
+            image,
+            (target_width, target_height),
+            interpolation=cv2.INTER_LINEAR
+        )
 
-    processed_img, meta = classify_preprocess(
-        frame, in_w, in_h, in_scale, mean=mean, std=std
+    # -------------------------------------------------------------------------
+    # ToTensor()
+    # uint8 [0,255] -> float [0,1]
+    # -------------------------------------------------------------------------
+
+    image = image.astype(
+        np.float32
+    ) / 255.0
+
+    # -------------------------------------------------------------------------
+    # Training normalization
+    # -------------------------------------------------------------------------
+
+    image = (
+        image - 0.1307
+    ) / 0.3081
+
+    # -------------------------------------------------------------------------
+    # Quantization
+    # -------------------------------------------------------------------------
+
+    image = image * input_scale
+
+    # Saturate to int8 range
+    image = np.clip(
+        image,
+        -128,
+        127
     )
 
-    if input_is_nhwc:
-        in_data[0][0, ...] = processed_img
-    else:
-        in_data[0][0, 0, :, :] = processed_img[:, :, 0]
-        in_data[0][0, 1, :, :] = processed_img[:, :, 1]
-        in_data[0][0, 2, :, :] = processed_img[:, :, 2]
+    return image.astype(np.int8)
 
-    fpga_start = time.perf_counter()
-    jid = runner.execute_async(in_data, out_data)
-    runner.wait(jid)
-    fpga_end = time.perf_counter()
 
-    logits = (out_data[0].astype(np.float32) / out_scale).reshape(-1)
+# =============================================================================
+# Main inference
+# =============================================================================
 
-    if needs_softmax:
-        probs = softmax_1d(logits)
-    else:
-        probs = logits
+def run_inference(
+    model_path,
+    image_path,
+    output_dir,
+    top_k,
+):
 
-    top_idx, top_scores = topk(probs, top_k)
+    # =========================================================================
+    # Load XModel
+    # =========================================================================
 
-    end_to_end_end = time.perf_counter()
+    print(
+        f"Loading XModel: {model_path}"
+    )
 
-    f_lat = (fpga_end - fpga_start) * 1000.0
-    end_to_end_lat = (end_to_end_end - end_to_end_start) * 1000.0
+    graph = xir.Graph.deserialize(
+        model_path
+    )
 
-    print("-" * 100)
-    print(f"FPGA latency:      {f_lat:.2f} ms ({1000.0/f_lat:.2f} FPS)")
-    print(f"End-to-end latency: {end_to_end_lat:.2f} ms ({1000.0/end_to_end_lat:.2f} FPS)")
-    print(f"Overhead (non-FPGA): {end_to_end_lat - f_lat:.2f} ms")
-    print("-" * 100)
+    # =========================================================================
+    # Find DPU
+    # =========================================================================
 
-    print(f"Top-{top_k} predictions:")
-    for rank, (cls_i, score) in enumerate(zip(top_idx, top_scores)):
-        if class_names and cls_i < len(class_names):
-            label = f"{class_names[cls_i]}: {score:.4f}"
-        else:
-            label = f"class_{int(cls_i)}: {score:.4f}"
-        print(f"  {rank+1}. {label}")
+    subgraphs = get_child_subgraph_dpu(
+        graph
+    )
 
-    # Overlay top-k predictions on the frame
-    for rank, (cls_i, score) in enumerate(zip(top_idx, top_scores)):
-        if class_names and cls_i < len(class_names):
-            label = f"{class_names[cls_i]}: {score:.2f}"
-        else:
-            label = f"class_{int(cls_i)}: {score:.2f}"
-        cv2.putText(
-            frame,
-            label,
-            (10, 25 + rank * 25),
-            cv2.FONT_HERSHEY_SIMPLEX,
-            0.7,
-            (0, 255, 0),
-            2,
-            cv2.LINE_AA,
+    if not subgraphs:
+        raise RuntimeError(
+            "No DPU subgraph found in XModel."
         )
 
-    base_name = os.path.splitext(os.path.basename(image_path))[0]
-    out_path = os.path.join(output_dir, f"{base_name}_annotated.jpg")
-    cv2.imwrite(out_path, frame)
-    print(f"Annotated image saved to: {out_path}")
+    print(
+        f"DPU subgraph: "
+        f"{subgraphs[0].get_name()}"
+    )
 
+    # =========================================================================
+    # Create VART runner
+    # =========================================================================
+
+    runner = vart.Runner.create_runner(
+        subgraphs[0],
+        "run"
+    )
+
+    # =========================================================================
+    # Get tensors
+    # =========================================================================
+
+    input_tensors = (
+        runner.get_input_tensors()
+    )
+
+    output_tensors = (
+        runner.get_output_tensors()
+    )
+
+    if len(input_tensors) != 1:
+        raise RuntimeError(
+            f"Expected 1 input tensor, "
+            f"got {len(input_tensors)}"
+        )
+
+    if len(output_tensors) != 1:
+        raise RuntimeError(
+            f"Expected 1 output tensor, "
+            f"got {len(output_tensors)}"
+        )
+
+    input_tensor = input_tensors[0]
+    output_tensor = output_tensors[0]
+
+    # =========================================================================
+    # Tensor information
+    # =========================================================================
+
+    input_shape = tuple(
+        input_tensor.dims
+    )
+
+    output_shape = tuple(
+        output_tensor.dims
+    )
+
+    input_fix_point = (
+        input_tensor.get_attr(
+            "fix_point"
+        )
+    )
+
+    output_fix_point = (
+        output_tensor.get_attr(
+            "fix_point"
+        )
+    )
+
+    input_scale = float(
+        2 ** input_fix_point
+    )
+
+    output_scale = float(
+        2 ** output_fix_point
+    )
+
+    print()
+    print("=" * 70)
+
+    print("INPUT")
+    print(
+        f"  shape:     {input_shape}"
+    )
+    print(
+        f"  fix_point: {input_fix_point}"
+    )
+    print(
+        f"  scale:     {input_scale}"
+    )
+
+    print()
+
+    print("OUTPUT")
+    print(
+        f"  shape:     {output_shape}"
+    )
+    print(
+        f"  fix_point: {output_fix_point}"
+    )
+    print(
+        f"  scale:     {output_scale}"
+    )
+
+    print("=" * 70)
+
+    # =========================================================================
+    # Validate expected MNIST model
+    # =========================================================================
+
+    if input_shape != (1, 28, 28, 1):
+        raise RuntimeError(
+            "This inference script expects an MNIST "
+            f"input shape of (1, 28, 28, 1), "
+            f"but the XModel has {input_shape}"
+        )
+
+    if output_shape != (1, 10):
+        raise RuntimeError(
+            "This inference script expects 10 output "
+            f"classes, but the XModel has {output_shape}"
+        )
+
+    # =========================================================================
+    # Read image
+    # =========================================================================
+
+    image = cv2.imread(
+        image_path,
+        cv2.IMREAD_GRAYSCALE
+    )
+
+    if image is None:
+        raise RuntimeError(
+            f"Could not read image: {image_path}"
+        )
+
+    print()
+    print(
+        f"Image: {image_path}"
+    )
+
+    print(
+        f"Original image shape: "
+        f"{image.shape}"
+    )
+
+    # Keep original image for annotation
+    original_image = image.copy()
+
+    # =========================================================================
+    # Preprocess
+    # =========================================================================
+
+    processed = preprocess_mnist(
+        image=image,
+        target_width=28,
+        target_height=28,
+        input_scale=input_scale,
+    )
+
+    print()
+    print("Preprocessed input:")
+    print(
+        f"  shape: {processed.shape}"
+    )
+    print(
+        f"  min:   {processed.min()}"
+    )
+    print(
+        f"  max:   {processed.max()}"
+    )
+
+    # =========================================================================
+    # Prepare DPU input
+    # =========================================================================
+
+    input_data = np.empty(
+        input_shape,
+        dtype=np.int8,
+        order="C"
+    )
+
+    input_data[
+        0, :, :, 0
+    ] = processed
+
+    # =========================================================================
+    # Prepare DPU output
+    # =========================================================================
+
+    output_data = np.empty(
+        output_shape,
+        dtype=np.int8,
+        order="C"
+    )
+
+    # =========================================================================
+    # Run FPGA inference
+    # =========================================================================
+
+    start_total = time.perf_counter()
+
+    start_fpga = time.perf_counter()
+
+    job_id = runner.execute_async(
+        [input_data],
+        [output_data]
+    )
+
+    runner.wait(job_id)
+
+    end_fpga = time.perf_counter()
+
+    end_total = time.perf_counter()
+
+    # =========================================================================
+    # Raw output
+    # =========================================================================
+
+    raw_output = (
+        output_data[0]
+        .reshape(-1)
+    )
+
+    # =========================================================================
+    # Dequantize output
+    # =========================================================================
+
+    scores = (
+        raw_output.astype(
+            np.float32
+        ) / output_scale
+    )
+
+    # =========================================================================
+    # Prediction
+    # =========================================================================
+
+    predicted_class = int(
+        np.argmax(scores)
+    )
+
+    # =========================================================================
+    # Top-K
+    # =========================================================================
+
+    k = min(
+        top_k,
+        len(scores)
+    )
+
+    top_indices = np.argsort(
+        scores
+    )[::-1][:k]
+
+    # =========================================================================
+    # Timing
+    # =========================================================================
+
+    fpga_latency = (
+        end_fpga - start_fpga
+    ) * 1000.0
+
+    end_to_end_latency = (
+        end_total - start_total
+    ) * 1000.0
+
+    # =========================================================================
+    # Print results
+    # =========================================================================
+
+    print()
+    print("=" * 70)
+
+    print("Raw FPGA output:")
+    print(raw_output)
+
+    print()
+
+    print("Dequantized output:")
+    print(scores)
+
+    print()
+
+    print(
+        "======================================================================"
+    )
+
+    print(
+        f"Predicted digit: {predicted_class}"
+    )
+
+    print(
+        f"Model output score: "
+        f"{scores[predicted_class]:.4f}"
+    )
+
+    print("-" * 70)
+
+    print(
+        f"FPGA latency:       "
+        f"{fpga_latency:.2f} ms"
+    )
+
+    if fpga_latency > 0:
+        print(
+            f"FPGA FPS:            "
+            f"{1000.0 / fpga_latency:.2f}"
+        )
+
+    print(
+        f"End-to-end latency: "
+        f"{end_to_end_latency:.2f} ms"
+    )
+
+    if end_to_end_latency > 0:
+        print(
+            f"End-to-end FPS:      "
+            f"{1000.0 / end_to_end_latency:.2f}"
+        )
+
+    print(
+        f"Non-FPGA overhead:  "
+        f"{end_to_end_latency - fpga_latency:.2f} ms"
+    )
+
+    print("-" * 70)
+
+    print(
+        f"Top-{k} predictions:"
+    )
+
+    for rank, class_idx in enumerate(
+        top_indices,
+        start=1
+    ):
+
+        print(
+            f"  {rank}. "
+            f"{int(class_idx)}: "
+            f"{scores[class_idx]:.4f}"
+        )
+
+    print(
+        "======================================================================"
+    )
+
+    # =========================================================================
+    # Save annotated image
+    # =========================================================================
+
+    os.makedirs(
+        output_dir,
+        exist_ok=True
+    )
+
+    annotated = cv2.cvtColor(
+        original_image,
+        cv2.COLOR_GRAY2BGR
+    )
+
+    cv2.putText(
+        annotated,
+        f"Predicted: {predicted_class}",
+        (5, 20),
+        cv2.FONT_HERSHEY_SIMPLEX,
+        0.55,
+        (0, 255, 0),
+        1,
+        cv2.LINE_AA
+    )
+
+    for rank, class_idx in enumerate(
+        top_indices,
+        start=1
+    ):
+
+        text = (
+            f"{rank}. {int(class_idx)} "
+            f"{scores[class_idx]:.2f}"
+        )
+
+        cv2.putText(
+            annotated,
+            text,
+            (5, 20 + rank * 20),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.5,
+            (0, 255, 0),
+            1,
+            cv2.LINE_AA
+        )
+
+    base_name = os.path.splitext(
+        os.path.basename(image_path)
+    )[0]
+
+    output_path = os.path.join(
+        output_dir,
+        f"{base_name}_annotated.jpg"
+    )
+
+    cv2.imwrite(
+        output_path,
+        annotated
+    )
+
+    print()
+    print(
+        f"Annotated image saved to: "
+        f"{output_path}"
+    )
+
+
+# =============================================================================
+# Arguments
+# =============================================================================
 
 def parse_args():
-    p = argparse.ArgumentParser(
-        description="Single-image FPGA inference for an image classification model using VART."
-    )
-    p.add_argument("model_path", help="Path to .xmodel")
-    p.add_argument(
-        "config_path",
-        help="Path to config.pkl containing (class_names, needs_softmax, mean, std)",
-    )
-    p.add_argument("image_path", help="Path to input image file")
-    p.add_argument("output_dir", help="Output directory for the annotated image")
-    p.add_argument("--top_k", type=int, default=5, help="Number of top predictions to display")
-    return p.parse_args()
 
+    parser = argparse.ArgumentParser(
+        description=(
+            "Single-image MNIST classification "
+            "inference on FPGA using VART"
+        )
+    )
+
+    parser.add_argument(
+        "model_path",
+        help="Path to the .xmodel"
+    )
+
+    parser.add_argument(
+        "image_path",
+        help="Path to a single MNIST image"
+    )
+
+    parser.add_argument(
+        "output_dir",
+        nargs="?",
+        default="results",
+        help=(
+            "Directory for annotated output "
+            "(default: results)"
+        )
+    )
+
+    parser.add_argument(
+        "--top_k",
+        type=int,
+        default=5,
+        help=(
+            "Number of top predictions "
+            "(default: 5)"
+        )
+    )
+
+    return parser.parse_args()
+
+
+# =============================================================================
+# Entry point
+# =============================================================================
 
 if __name__ == "__main__":
+
     args = parse_args()
-    run_image_classify(
+
+    run_inference(
         model_path=args.model_path,
-        config_path=args.config_path,
         image_path=args.image_path,
         output_dir=args.output_dir,
         top_k=args.top_k,
