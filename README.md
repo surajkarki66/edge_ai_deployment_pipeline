@@ -252,7 +252,7 @@ edge-ai-deploy data/mnist_model.pt \
   --auto-select
 ```
 
-### PyTorch → ARM / Jetson
+### PyTorch → ARM
 
 ```bash
 edge-ai-deploy data/mnist_model.pt \
