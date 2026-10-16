@@ -181,7 +181,7 @@ This pipeline is **end-to-end** — all steps through deployment must succeed. I
 | ---------------------------------- | ------------------------------------- | ---------------------------------------- |
 | **FPGA** (`zcu104`)        | Docker + Vitis-AI image               | —                                       |
 | **Jetson**                   | NVIDIA driver, CUDA, TensorRT 10.x    | —                                       |
-| **ARM** (`raspberry_pi_4`) | ncnn + pnnx (via`pip install -e .`) | —                                       |
+| **ARM** (`raspberry_pi_4`, `raspberry_pi_5`) | ncnn + pnnx (via`pip install -e .`) | —                                       |
 | **MCU** (`stm32n6570_dk`)  | STEdgeAI, STM32CubeIDE                | `STM32_AI_EXE`, `STM32_CUBE_IDE_EXE` |
 
 #### FPGA — Docker + Vitis AI
@@ -335,7 +335,7 @@ Requires `STM32_AI_EXE` and `STM32_CUBE_IDE_EXE` (see host pre-flight checks bel
 | `ultra_low` | FPGA (`zcu104`)                             |
 | `low`       | MCU (`stm32n6570_dk`)                       |
 | `medium`    | NVIDIA Jetson (`jetson_nano`, `agx_orin`) |
-| `moderate`  | Raspberry Pi (`raspberry_pi_4`)             |
+| `moderate`  | Raspberry Pi (`raspberry_pi_4`, `raspberry_pi_5`) |
 
 Or invoke the module directly:
 
