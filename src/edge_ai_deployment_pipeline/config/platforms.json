@@ -255,6 +255,15 @@
           "available_toolchains": [
             "ncnn"
           ]
+        },
+        "raspberry_pi_5": {
+          "display_name": "Raspberry Pi 5 Model B (4 GB)",
+          "memory_mb": 4096,
+          "tdp_watts": 12,
+          "cost_usd": 110,
+          "available_toolchains": [
+            "ncnn"
+          ]
         }
       }
     }
